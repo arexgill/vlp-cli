@@ -24,7 +24,7 @@ import { loadSession, saveSession } from './session-store.mjs';
 import { runTerminalReview } from './terminal-review.mjs';
 
 const exec = promisify(execFile);
-const SUPPORTED_EXTENSIONS = new Set(['.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx']);
+const SUPPORTED_EXTENSIONS = new Set(['.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx', '.py']);
 
 function isInteractive(tty = {}, stdin, stdout) {
   const inputTty = typeof tty?.stdin === 'boolean' ? tty.stdin : Boolean(stdin?.isTTY);
@@ -163,6 +163,21 @@ async function statusLines(cwd) {
   ];
 }
 
+async function projectNeedsPython(root, config) {
+  if (!root) return false;
+  if (config?.runtime?.type === 'fastapi') return true;
+
+  try {
+    await discoverSources({ root, languageMode: 'python' });
+    return true;
+  } catch (error) {
+    if (/No supported source files were found/i.test(error.message)) {
+      return false;
+    }
+    return true;
+  }
+}
+
 async function doctorLines(cwd) {
   const version = await cliVersion();
   let root = null;
@@ -177,12 +192,13 @@ async function doctorLines(cwd) {
   }
 
   const needsDocker = config?.runtime?.type === 'fastapi';
+  const needsPython = await projectNeedsPython(root, config);
 
   return [
     `Version: ${version}`,
     `Node: available (${process.versions.node})`,
     `Git: ${await commandAvailable('git') ? 'available' : 'missing'}`,
-    `Python: ${root && needsDocker ? (await commandAvailable('python3') ? 'available' : 'missing') : 'not required'}`,
+    `Python: ${needsPython ? (await commandAvailable('python3') ? 'available' : 'missing') : 'not required'}`,
     `Docker: ${needsDocker ? (await commandAvailable('docker') ? 'available' : 'missing') : 'not required'}`,
   ];
 }

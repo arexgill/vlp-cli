@@ -67,6 +67,45 @@ async function makeCliRepo() {
   return root;
 }
 
+async function makePythonCliRepo() {
+  const root = await mkdtemp(path.join(tmpdir(), 'vlp-cli-py-'));
+  await git(root, 'init');
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(
+    path.join(root, 'src', 'search.py'),
+    'def search_products(products, query):\n    return products\n',
+  );
+  await git(root, 'add', '.');
+  await git(root, 'commit', '-m', 'initial');
+
+  await writeFile(
+    path.join(root, 'src', 'search.py'),
+    'def search_products(products, query):\n    if not query:\n        return products\n    normalized = query.lower()\n    return [product for product in products if normalized in product["name"].lower()]\n',
+  );
+
+  await initializeProject(root);
+  await writeFile(
+    path.join(root, '.vlp', 'contracts', 'search-scope.md'),
+    buildContractDocument({
+      slug: 'search-scope',
+      created: fixedClock,
+      status: 'confirmed',
+      sections: {
+        Intent: ['Build search_products(products, query).'],
+        'Acceptance Criteria': [
+          '- Search relevance must consider product name, description, category, and tags.',
+          '- If the query is empty, return all products.',
+          '- Matching must be case-insensitive.',
+        ],
+        Exclusions: ['- None.'],
+        Context: ['- Review only the changed Python source.'],
+      },
+    }),
+  );
+
+  return root;
+}
+
 function runCli(args, { cwd, input = '', env = {} } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [helperPath, ...args], {
@@ -277,9 +316,31 @@ test('status and doctor stay redacted and never expose environment credential va
   assert.equal(doctor.code, 0);
   assert.match(doctor.stdout, /Node:/);
   assert.match(doctor.stdout, /Git:/);
+  assert.match(doctor.stdout, /Python: not required/);
   assert.doesNotMatch(doctor.stdout, new RegExp(secret));
   assert.doesNotMatch(doctor.stdout, /OPENAI_API_KEY/);
   assert.doesNotMatch(doctor.stdout, /\/Users\//);
+});
+
+test('review --json analyzes changed python files and doctor requires python without Docker for python projects', async () => {
+  const root = await makePythonCliRepo();
+
+  const doctor = await runCli(['doctor'], { cwd: root });
+  assert.equal(doctor.code, 0);
+  assert.match(doctor.stdout, /Python: available/);
+  assert.match(doctor.stdout, /Docker: not required/);
+
+  const review = await runCli(['review', '--json'], { cwd: root });
+  assert.equal(review.code, 3);
+  assert.equal(review.stderr, '');
+
+  const json = JSON.parse(review.stdout);
+  assert.equal(json.command, 'review');
+  assert.equal(json.status, 'unresolved');
+  assert.equal(json.contract.id, 'search-scope');
+  assert.equal(Array.isArray(json.questions), true);
+  assert.equal(json.questions.length > 0, true);
+  assert.equal(JSON.stringify(json).includes(root), false);
 });
 
 test('review --web parses but returns a clear not-yet-available result until Task 8', async () => {

@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { analyzeSources } from '@arexgill/vlp-core';
+
+const fixtureRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'python');
 
 const js = {
   path: 'search.js',
@@ -22,8 +27,16 @@ const ts = {
 };`,
 };
 
-test('documents signatures, conditions, calls, returns, and throws', async () => {
-  const result = await analyzeSources([js, ts]);
+async function pythonSource(name, fileName = name) {
+  return {
+    path: name,
+    language: 'python',
+    content: await readFile(path.join(fixtureRoot, fileName), 'utf8'),
+  };
+}
+
+test('documents JS/TS behavior and general python structure without changing unit ids or diagnostics', async () => {
+  const result = await analyzeSources([js, ts, await pythonSource('analytics.py')]);
 
   assert.deepEqual(result.diagnostics, []);
   assert.equal(result.docUnits.some((unit) => unit.symbol === 'search' && unit.kind === 'signature'), true);
@@ -38,15 +51,27 @@ test('documents signatures, conditions, calls, returns, and throws', async () =>
     true,
   );
   assert.equal(result.docUnits.some((unit) => unit.file === 'limit.ts' && unit.kind === 'throw'), true);
+  assert.equal(result.docUnits.some((unit) => unit.file === 'analytics.py' && unit.kind === 'module'), true);
+  assert.equal(result.docUnits.some((unit) => unit.file === 'analytics.py' && unit.kind === 'class'), true);
+  assert.equal(result.docUnits.some((unit) => unit.file === 'analytics.py' && unit.kind === 'decorator'), true);
+  assert.equal(result.docUnits.some((unit) => unit.file === 'analytics.py' && unit.kind === 'yield'), true);
+  assert.equal(result.docUnits.some((unit) => unit.file === 'analytics.py' && unit.kind === 'catch'), true);
   assert.equal(result.docUnits.every((unit) => unit.lineStart >= 1 && unit.id.startsWith('doc-')), true);
   assert.equal(new Set(result.docUnits.map((unit) => unit.id)).size, result.docUnits.length);
 });
 
-test('returns a diagnostic and preserves other parseable files', async () => {
-  const broken = { path: 'broken.js', language: 'javascript', content: 'function {' };
-  const result = await analyzeSources([broken, js]);
+test('returns diagnostics for invalid JS/Python files and preserves other parseable files', async () => {
+  const brokenJs = { path: 'broken.js', language: 'javascript', content: 'function {' };
+  const result = await analyzeSources([
+    brokenJs,
+    js,
+    await pythonSource('poison.py'),
+    await pythonSource('broken.py'),
+  ]);
 
-  assert.equal(result.diagnostics.length, 1);
-  assert.equal(result.diagnostics[0].file, 'broken.js');
+  assert.equal(result.diagnostics.length, 2);
+  assert.equal(result.diagnostics.some((diagnostic) => diagnostic.file === 'broken.js'), true);
+  assert.equal(result.diagnostics.some((diagnostic) => diagnostic.file === 'broken.py'), true);
   assert.equal(result.docUnits.some((unit) => unit.file === 'search.js'), true);
+  assert.equal(result.docUnits.some((unit) => unit.file === 'poison.py' && unit.kind === 'raise'), true);
 });

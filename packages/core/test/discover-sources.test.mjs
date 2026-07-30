@@ -16,9 +16,11 @@ async function materializeFixtureTree() {
   const files = [
     ['a.js', 'a.js.txt'],
     ['b.ts', 'b.ts.txt'],
+    ['c.py', 'c.py.txt'],
     ['poison.js', 'poison.js.txt'],
     ['note.txt', 'note.txt'],
     ['node_modules/ignored.js', 'ignored.js.txt'],
+    ['node_modules/ignored.py', 'ignored.py.txt'],
   ];
 
   for (const [relativePath, fixtureName] of files) {
@@ -34,13 +36,15 @@ test('discovers supported files deterministically with repository-relative paths
   const sourceRoot = await materializeFixtureTree();
   const sources = await discoverSources({ root: sourceRoot });
 
-  assert.deepEqual(sources.map((source) => source.path), ['a.js', 'b.ts', 'poison.js']);
+  assert.deepEqual(sources.map((source) => source.path), ['a.js', 'b.ts', 'c.py', 'poison.js']);
   assert.deepEqual(sources.map((source) => source.language), [
     'javascript',
     'typescript',
+    'python',
     'javascript',
   ]);
-  assert.equal(sources[2].content.includes('fixture code must never execute'), true);
+  assert.equal(sources[2].content.includes('name.strip().lower()'), true);
+  assert.equal(sources[3].content.includes('fixture code must never execute'), true);
 });
 
 test('accepts one supported source file without leaking its absolute path', async () => {

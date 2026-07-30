@@ -1,6 +1,8 @@
 import { parse } from '@babel/parser';
 import { createHash } from 'node:crypto';
 
+import { analyzePythonSources } from './python-analyzer.mjs';
+
 const STOP_WORDS = new Set([
   'the',
   'a',
@@ -165,12 +167,17 @@ function parserPlugins(source) {
 }
 
 export async function analyzeSources(sources, options = {}) {
-  void options;
-
   const docUnits = [];
   const diagnostics = [];
+  const pythonSources = [];
+  let frameworkHints = {};
 
   for (const source of sources) {
+    if (source.language === 'python') {
+      pythonSources.push({ path: source.path, source: source.content });
+      continue;
+    }
+
     if (!['javascript', 'typescript'].includes(source.language)) {
       continue;
     }
@@ -191,5 +198,22 @@ export async function analyzeSources(sources, options = {}) {
     }
   }
 
-  return { docUnits, diagnostics };
+  if (pythonSources.length > 0) {
+    try {
+      const result = await analyzePythonSources(pythonSources, options);
+      if (Array.isArray(result.units)) docUnits.push(...result.units);
+      if (Array.isArray(result.diagnostics)) diagnostics.push(...result.diagnostics);
+      if (result.frameworkHints && typeof result.frameworkHints === 'object') {
+        frameworkHints = result.frameworkHints;
+      }
+    } catch (error) {
+      diagnostics.push({
+        file: 'python-analyzer',
+        message: error.message,
+        line: 1,
+      });
+    }
+  }
+
+  return { docUnits, diagnostics, frameworkHints };
 }

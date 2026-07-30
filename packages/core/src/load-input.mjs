@@ -3,10 +3,11 @@ import path from 'node:path';
 
 import { resolveCoreLimits } from './limits.mjs';
 
-const JS_EXTENSIONS = Object.freeze(['.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx']);
+const JS_TS_PY_EXTENSIONS = Object.freeze(['.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx', '.py']);
 const JS_ONLY_EXTENSIONS = Object.freeze(['.js', '.mjs', '.cjs', '.jsx']);
 const TS_ONLY_EXTENSIONS = Object.freeze(['.ts', '.tsx']);
-const IGNORED_DIRECTORIES = new Set(['.git', 'node_modules', 'dist', 'build', 'coverage']);
+const PYTHON_ONLY_EXTENSIONS = Object.freeze(['.py']);
+const IGNORED_DIRECTORIES = new Set(['.git', 'node_modules', 'dist', 'build', 'coverage', '.venv', 'venv', '__pycache__']);
 
 function ensureWithinRoot(rootPath, filePath) {
   const relativePath = path.relative(rootPath, filePath);
@@ -33,6 +34,7 @@ function normalizeRelativePath(rootPath, filePath) {
 
 function languageFor(filePath) {
   const extension = path.extname(filePath).toLowerCase();
+  if (extension === '.py') return 'python';
   return ['.ts', '.tsx'].includes(extension) ? 'typescript' : 'javascript';
 }
 
@@ -49,8 +51,12 @@ function extensionsFor(languageMode = 'js-ts') {
     return new Set(TS_ONLY_EXTENSIONS);
   }
 
+  if (languageMode === 'python') {
+    return new Set(PYTHON_ONLY_EXTENSIONS);
+  }
+
   if (languageMode === 'js-ts') {
-    return new Set(JS_EXTENSIONS);
+    return new Set(JS_TS_PY_EXTENSIONS);
   }
 
   throw new Error(`Unsupported language mode: ${languageMode}`);
