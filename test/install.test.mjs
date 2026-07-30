@@ -820,9 +820,8 @@ test('installed/public web review assets still bind only to 127.0.0.1', async ()
   }
 });
 
-test('release docs/workflow cover the phase-1 installer, privacy, limitations, and macOS/Linux x64-arm64 smoke matrix', async () => {
+test('release docs cover the phase-1 installer, privacy, and limitations', async () => {
   const readme = await readFile(path.join(repoRoot, 'README.md'), 'utf8');
-  const workflow = await readFile(path.join(repoRoot, '.github', 'workflows', 'release.yml'), 'utf8');
   const installer = await readFile(path.join(repoRoot, 'install', 'install.sh'), 'utf8');
 
   assert.match(readme, new RegExp(`VLP_VERSION=${version}`));
@@ -839,15 +838,6 @@ test('release docs/workflow cover the phase-1 installer, privacy, limitations, a
   assert.match(readme, /sh "\$\{XDG_DATA_HOME:-\$HOME\/\.local\/share\}\/vlp-cli\/uninstall\.sh"/);
   assert.match(readme, /Phase 1/i);
 
-  assert.match(workflow, /ubuntu-latest/);
-  assert.match(workflow, /ubuntu-24\.04-arm/);
-  assert.match(workflow, /macos-13/);
-  assert.match(workflow, /macos-latest/);
-  assert.match(workflow, /build-node-bundle/);
-  assert.match(workflow, /cp install\/install\.sh install\/uninstall\.sh "dist\/v\$VERSION\//);
-  assert.match(workflow, /generate-checksums/);
-  assert.match(workflow, /vlp review --json/);
-  assert.match(workflow, /vlp resolve --session/);
   assert.doesNotMatch(installer, /\bsudo\b/);
 
   await assert.rejects(readFile(path.join(repoRoot, 'docs', 'reports', 'task-8-transaction-reliability.md')));

@@ -82,6 +82,10 @@ test('workspace foundation metadata is correct', () => {
     check: 'npm test && npm pack --workspaces --dry-run',
   });
   assert.equal(readFileSync(path.join(repoRoot, '.nvmrc'), 'utf8').trim(), '20');
+  assert.equal(
+    readFileSync(path.join(repoRoot, '.gitignore'), 'utf8').split(/\r?\n/).includes('.github/'),
+    true,
+  );
 
   for (const [workspacePath, expectedName] of Object.entries(workspacePackagePaths)) {
     const manifest = readJson(path.join(repoRoot, workspacePath, 'package.json'));
@@ -169,32 +173,6 @@ test('workspace fixtures do not contain runnable Node helper files that the test
   });
 
   assert.deepEqual(fixtureFiles, []);
-});
-
-test('CI workflows pin the workspace floor, enforce the release tag/version contract, and cover the release smoke matrix', () => {
-  const testWorkflow = readFileSync(path.join(repoRoot, '.github/workflows/test.yml'), 'utf8');
-  assert.match(testWorkflow, /node-version:\s*\[20, 22\]/);
-  assert.match(testWorkflow, /macos-latest/);
-  assert.match(testWorkflow, /ubuntu-latest/);
-
-  const releaseWorkflow = readFileSync(path.join(repoRoot, '.github/workflows/release.yml'), 'utf8');
-  assert.match(releaseWorkflow, /ubuntu-latest/);
-  assert.match(releaseWorkflow, /ubuntu-24\.04-arm/);
-  assert.match(releaseWorkflow, /macos-13/);
-  assert.match(releaseWorkflow, /macos-latest/);
-  assert.match(releaseWorkflow, /Verify tag matches package version/);
-  assert.match(releaseWorkflow, /GITHUB_REF_NAME/);
-  assert.match(releaseWorkflow, /does not match package\.json version/);
-  assert.match(releaseWorkflow, /build-node-bundle/);
-  assert.match(releaseWorkflow, /generate-checksums/);
-  assert.match(releaseWorkflow, /permissions:\s*\n\s*contents:\s*write/);
-  assert.match(releaseWorkflow, /needs:\s*\[build, smoke\]/);
-  assert.match(releaseWorkflow, /if:\s*github\.event_name == 'push' && startsWith\(github\.ref, 'refs\/tags\/v'\)/);
-  assert.match(releaseWorkflow, /softprops\/action-gh-release@v2/);
-  assert.match(releaseWorkflow, /tag_name:\s*v\$\{\{ steps\.version\.outputs\.version \}\}/);
-  assert.match(releaseWorkflow, /files:\s*dist\/v\$\{\{ steps\.version\.outputs\.version \}\}\/\*/);
-  assert.doesNotMatch(releaseWorkflow, /secrets\./);
-  assert.doesNotMatch(releaseWorkflow, /pull_request:/);
 });
 
 for (const workspacePath of Object.keys(workspacePackagePaths)) {
