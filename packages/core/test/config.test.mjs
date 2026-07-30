@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -24,10 +24,67 @@ async function makeConfigRoot(config) {
   return root;
 }
 
-test('loadConfig returns the exact version 1 project config', async () => {
+test('loadConfig returns the exact version 1 project config with runtime null', async () => {
   const root = await makeConfigRoot(expectedConfig);
 
   assert.deepEqual(await loadConfig(root), expectedConfig);
+});
+
+test('loadConfig accepts and freezes a fastapi runtime object', async () => {
+  const runtime = {
+    type: 'fastapi',
+    app: 'service.api:create_app',
+  };
+  const root = await makeConfigRoot({
+    ...expectedConfig,
+    runtime,
+  });
+
+  const loaded = await loadConfig(root);
+  assert.deepEqual(loaded, {
+    ...expectedConfig,
+    runtime,
+  });
+  assert.equal(Object.isFrozen(loaded.runtime), true);
+  assert.equal(loaded.runtime.type, 'fastapi');
+  assert.equal(loaded.runtime.app, 'service.api:create_app');
+});
+
+test('loadConfig rejects unknown runtime keys', async () => {
+  const root = await makeConfigRoot({
+    ...expectedConfig,
+    runtime: {
+      type: 'fastapi',
+      app: 'service.api:create_app',
+      extra: true,
+    },
+  });
+
+  await assert.rejects(loadConfig(root), /unknown runtime key/i);
+});
+
+test('loadConfig rejects unsupported runtime types', async () => {
+  const root = await makeConfigRoot({
+    ...expectedConfig,
+    runtime: {
+      type: 'celery',
+      app: 'service.api:create_app',
+    },
+  });
+
+  await assert.rejects(loadConfig(root), /unsupported runtime type/i);
+});
+
+test('loadConfig rejects invalid runtime app targets', async () => {
+  const root = await makeConfigRoot({
+    ...expectedConfig,
+    runtime: {
+      type: 'fastapi',
+      app: 'service-api:create-app',
+    },
+  });
+
+  await assert.rejects(loadConfig(root), /conservative python module\/attribute syntax/i);
 });
 
 test('loadConfig rejects unknown top-level trust-boundary keys', async () => {

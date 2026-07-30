@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, readdir, readFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -19,22 +19,20 @@ const expectedConfig = {
 
 const expectedGitignore = ['reviews/.sessions/', 'reviews/.cache/', 'reviews/*.tmp', ''].join('\n');
 
-async function makeRoot() {
+async function makeRepoRoot() {
   const root = await mkdtemp(path.join(tmpdir(), 'vlp-init-'));
   await mkdir(path.join(root, '.git'), { recursive: true });
   return root;
 }
 
-test('initializeProject rejects non-Git roots', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'vlp-no-git-'));
+test('initializeProject resolves a nested path to the repository root', async () => {
+  const root = await makeRepoRoot();
+  const nested = path.join(root, 'packages', 'app', 'src');
+  await mkdir(nested, { recursive: true });
 
-  await assert.rejects(initializeProject(root), /git repository or worktree/i);
-});
-
-test('initializeProject creates the exact .vlp tree and is idempotent', async () => {
-  const root = await makeRoot();
-
-  const first = await initializeProject(root);
+  const first = await initializeProject(nested);
+  assert.equal(first.root, root);
+  assert.equal(first.gitRoot, root);
   assert.deepEqual(first.created.directories, ['.vlp', '.vlp/contracts', '.vlp/reviews']);
   assert.deepEqual(first.created.files, ['.vlp/config.json', '.vlp/.gitignore']);
 
@@ -44,8 +42,16 @@ test('initializeProject creates the exact .vlp tree and is idempotent', async ()
   assert.deepEqual(JSON.parse(await readFile(path.join(root, '.vlp', 'config.json'), 'utf8')), expectedConfig);
   assert.equal(await readFile(path.join(root, '.vlp', '.gitignore'), 'utf8'), expectedGitignore);
 
-  const second = await initializeProject(root);
+  const second = await initializeProject(nested);
+  assert.equal(second.root, root);
   assert.deepEqual(second.created.directories, []);
   assert.deepEqual(second.created.files, []);
-  assert.deepEqual(JSON.parse(await readFile(path.join(root, '.vlp', 'config.json'), 'utf8')), expectedConfig);
+});
+
+test('initializeProject rejects non-Git roots even with a fake config', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'vlp-no-git-'));
+  await mkdir(path.join(root, '.vlp'), { recursive: true });
+  await writeFile(path.join(root, '.vlp', 'config.json'), `${JSON.stringify(expectedConfig, null, 2)}\n`);
+
+  await assert.rejects(initializeProject(root), /git repository or worktree/i);
 });

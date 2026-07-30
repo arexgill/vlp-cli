@@ -9,6 +9,8 @@ import {
   readContractDocument,
 } from '@arexgill/vlp-core';
 
+import { resolveProjectRoot } from '../project.mjs';
+
 function serializeError(error) {
   return Object.freeze({
     name: error?.name || 'Error',
@@ -33,8 +35,8 @@ function createResult(record) {
 }
 
 export async function createContract(root, name, { force = false, clock = () => new Date() } = {}) {
+  const rootPath = await resolveProjectRoot(root);
   const slug = normalizeContractSlug(name);
-  const rootPath = path.resolve(String(root ?? '.'));
   await loadConfig(rootPath);
   const filePath = contractFilePath(rootPath, slug);
   const relativePath = contractPathFromRoot(rootPath, slug);
@@ -68,8 +70,8 @@ export async function createContract(root, name, { force = false, clock = () => 
 }
 
 export async function confirmContract(root, name) {
+  const rootPath = await resolveProjectRoot(root);
   const slug = normalizeContractSlug(name);
-  const rootPath = path.resolve(String(root ?? '.'));
   await loadConfig(rootPath);
   const record = await readContractDocument(rootPath, slug);
 

@@ -37,6 +37,16 @@ async function findGitRoot(startPath) {
   }
 }
 
+export async function resolveProjectRoot(root) {
+  const gitRoot = await findGitRoot(root);
+
+  if (!gitRoot) {
+    throw new Error('Project operations require a Git repository or worktree');
+  }
+
+  return gitRoot;
+}
+
 async function ensureDirectory(directoryPath, createdDirectories, rootPath) {
   if (await entryExists(directoryPath)) {
     return;
@@ -59,42 +69,37 @@ async function discoverAdapters(rootPath) {
 }
 
 export async function initializeProject(root) {
-  const rootPath = path.resolve(String(root ?? '.'));
-  const gitRoot = await findGitRoot(rootPath);
-
-  if (!gitRoot) {
-    throw new Error('Initialization requires a Git repository or worktree');
-  }
+  const projectRoot = await resolveProjectRoot(root);
 
   const createdDirectories = [];
   const createdFiles = [];
 
-  await ensureDirectory(path.join(rootPath, VLP_DIR), createdDirectories, rootPath);
-  await ensureDirectory(path.join(rootPath, VLP_CONTRACTS_DIR), createdDirectories, rootPath);
-  await ensureDirectory(path.join(rootPath, VLP_REVIEWS_DIR), createdDirectories, rootPath);
+  await ensureDirectory(path.join(projectRoot, VLP_DIR), createdDirectories, projectRoot);
+  await ensureDirectory(path.join(projectRoot, VLP_CONTRACTS_DIR), createdDirectories, projectRoot);
+  await ensureDirectory(path.join(projectRoot, VLP_REVIEWS_DIR), createdDirectories, projectRoot);
 
-  const configPath = path.join(rootPath, CONFIG_PATH);
+  const configPath = path.join(projectRoot, CONFIG_PATH);
   if (await entryExists(configPath)) {
-    await loadConfig(rootPath);
+    await loadConfig(projectRoot);
   } else {
     await writeFile(configPath, formatConfig(DEFAULT_CONFIG));
-    createdFiles.push(path.relative(rootPath, configPath).split(path.sep).join('/'));
+    createdFiles.push(path.relative(projectRoot, configPath).split(path.sep).join('/'));
   }
 
-  const gitignorePath = path.join(rootPath, VLP_GITIGNORE_PATH);
+  const gitignorePath = path.join(projectRoot, VLP_GITIGNORE_PATH);
   if (!(await entryExists(gitignorePath))) {
     await writeFile(gitignorePath, VLP_GITIGNORE_CONTENT);
-    createdFiles.push(path.relative(rootPath, gitignorePath).split(path.sep).join('/'));
+    createdFiles.push(path.relative(projectRoot, gitignorePath).split(path.sep).join('/'));
   }
 
   return Object.freeze({
-    root: rootPath,
-    gitRoot,
+    root: projectRoot,
+    gitRoot: projectRoot,
     created: Object.freeze({
       directories: Object.freeze(createdDirectories),
       files: Object.freeze(createdFiles),
     }),
-    config: await loadConfig(rootPath),
-    adapters: Object.freeze(await discoverAdapters(rootPath)),
+    config: await loadConfig(projectRoot),
+    adapters: Object.freeze(await discoverAdapters(projectRoot)),
   });
 }

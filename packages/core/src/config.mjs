@@ -13,20 +13,11 @@ export const DEFAULT_CONFIG = Object.freeze({
   agentReview: 'off',
 });
 
+const PYTHON_IDENTIFIER = '[A-Za-z_][A-Za-z0-9_]*';
+const PYTHON_DOTTED_PATH = new RegExp(`^${PYTHON_IDENTIFIER}(?:\\.${PYTHON_IDENTIFIER})*$`);
+
 function cleanText(value) {
   return String(value ?? '').replaceAll('\0', '').replace(/\r\n?/g, '\n');
-}
-
-function freezeConfig(config) {
-  return Object.freeze({
-    version: config.version,
-    source: Object.freeze({
-      include: Object.freeze([...config.source.include]),
-      exclude: Object.freeze([...config.source.exclude]),
-    }),
-    runtime: config.runtime,
-    agentReview: config.agentReview,
-  });
 }
 
 function ensurePlainObject(value, message) {
@@ -40,7 +31,7 @@ function assertExactKeys(object, expectedKeys, subject) {
 
   for (const key of actualKeys) {
     if (!expectedKeys.includes(key)) {
-      throw new Error(`Unknown top-level config key: ${key}`);
+      throw new Error(`Unknown ${subject} key: ${key}`);
     }
   }
 
@@ -61,9 +52,63 @@ function assertExactArray(value, expected, subject) {
   }
 }
 
+function freezeRuntime(runtime) {
+  if (runtime === null) {
+    return null;
+  }
+
+  return Object.freeze({
+    type: runtime.type,
+    app: runtime.app,
+  });
+}
+
+function freezeConfig(config) {
+  return Object.freeze({
+    version: config.version,
+    source: Object.freeze({
+      include: Object.freeze([...config.source.include]),
+      exclude: Object.freeze([...config.source.exclude]),
+    }),
+    runtime: freezeRuntime(config.runtime),
+    agentReview: config.agentReview,
+  });
+}
+
+function validateRuntime(runtime) {
+  if (runtime === null) {
+    return null;
+  }
+
+  ensurePlainObject(runtime, 'Config runtime must be null or a plain object');
+  assertExactKeys(runtime, ['type', 'app'], 'runtime');
+
+  if (runtime.type !== 'fastapi') {
+    throw new Error(`Unsupported runtime type: ${runtime.type}`);
+  }
+
+  if (typeof runtime.app !== 'string' || runtime.app.length === 0 || runtime.app !== runtime.app.trim()) {
+    throw new Error('Runtime app target must be a non-empty string');
+  }
+
+  const [modulePath, attributePath, extra] = runtime.app.split(':');
+  if (!modulePath || !attributePath || extra !== undefined) {
+    throw new Error('Runtime app target must use module.path:attribute syntax');
+  }
+
+  if (!PYTHON_DOTTED_PATH.test(modulePath) || !PYTHON_DOTTED_PATH.test(attributePath)) {
+    throw new Error('Runtime app target must use conservative Python module/attribute syntax');
+  }
+
+  return {
+    type: 'fastapi',
+    app: runtime.app,
+  };
+}
+
 function validateConfig(config) {
   ensurePlainObject(config, 'Config must be a plain object');
-  assertExactKeys(config, ['version', 'source', 'runtime', 'agentReview'], 'config');
+  assertExactKeys(config, ['version', 'source', 'runtime', 'agentReview'], 'top-level config');
 
   if (config.version !== DEFAULT_CONFIG.version) {
     throw new Error(`Unsupported config version: ${config.version}`);
@@ -74,15 +119,16 @@ function validateConfig(config) {
   assertExactArray(config.source.include, DEFAULT_CONFIG.source.include, 'source.include');
   assertExactArray(config.source.exclude, DEFAULT_CONFIG.source.exclude, 'source.exclude');
 
-  if (config.runtime !== null) {
-    throw new Error('Config runtime must be null in phase 1');
-  }
+  const runtime = validateRuntime(config.runtime);
 
   if (config.agentReview !== 'off') {
     throw new Error('Config agentReview must remain "off" in phase 1');
   }
 
-  return freezeConfig(config);
+  return freezeConfig({
+    ...config,
+    runtime,
+  });
 }
 
 export function formatConfig(config = DEFAULT_CONFIG) {
