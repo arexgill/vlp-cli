@@ -1,0 +1,4 @@
+export const limit = (value: number): number => {
+  if (value > 100) throw new Error('too large');
+  return value;
+};

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>VLP Web Review</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.mjs"></script>
+</head>
+<body>
+  <div id="app-root" class="app-shell">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Optional review console</p>
+        <h1>VLP Web Review</h1>
+      </div>
+      <div class="topbar-meta">
+        <span class="local-pill">Local only</span>
+        <p id="app-status" class="status" aria-live="polite">Loading review session…</p>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="summary-column">
+        <article class="panel">
+          <h2>Session summary</h2>
+          <div id="session-summary" class="summary-grid" aria-live="polite"></div>
+        </article>
+        <article class="panel">
+          <h2>Questions</h2>
+          <div id="question-list" class="question-list" aria-label="Review questions"></div>
+        </article>
+      </section>
+
+      <section class="detail-column">
+        <article id="question-detail" class="panel detail-panel" aria-live="polite"></article>
+        <article class="panel report-panel">
+          <div class="report-header">
+            <h2>Repair-ready report</h2>
+            <button id="submit-review" type="button" class="primary-button">Generate report</button>
+          </div>
+          <pre class="report-view"><code id="report-output">No report yet.</code></pre>
+        </article>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

@@ -1,0 +1,1 @@
+throw new Error('ignored dependency fixture should never be read');

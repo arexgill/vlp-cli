@@ -1,0 +1,250 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Verify tag matches package version
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          VERSION=$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")
+          if [ "$GITHUB_REF_NAME" != "v$VERSION" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json version v$VERSION" >&2
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run checks
+        run: npm run check
+
+      - name: Build release artifacts
+        run: |
+          VERSION=$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")
+          mkdir -p "dist/v$VERSION"
+          node scripts/build-node-bundle.mjs --output-dir "dist/v$VERSION"
+          cp install/install.sh install/uninstall.sh "dist/v$VERSION/"
+          node scripts/generate-checksums.mjs "dist/v$VERSION"
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: dist/
+
+  smoke:
+    needs: build
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            runs-on: ubuntu-latest
+          - name: linux-arm64
+            runs-on: ubuntu-24.04-arm
+          - name: macos-x64
+            runs-on: macos-13
+          - name: macos-arm64
+            runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: dist/
+
+      - name: Start local release fixture
+        shell: bash
+        run: |
+          python3 -m http.server 8123 --bind 127.0.0.1 --directory dist >/tmp/vlp-http.log 2>&1 &
+          echo $! > /tmp/vlp-http.pid
+          for attempt in $(seq 1 50); do
+            if curl -fsS http://127.0.0.1:8123/ >/dev/null; then
+              exit 0
+            fi
+            sleep 0.2
+          done
+          echo 'Release fixture did not become ready in time.' >&2
+          cat /tmp/vlp-http.log >&2 || true
+          exit 1
+
+      - name: Install bundle into a temporary home
+        shell: bash
+        run: |
+          VERSION=$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")
+          export HOME="$RUNNER_TEMP/home"
+          export XDG_DATA_HOME="$RUNNER_TEMP/data"
+          export VLP_INSTALL_DIR="$RUNNER_TEMP/bin"
+          export VLP_RELEASE_BASE_URL="http://127.0.0.1:8123"
+          export VLP_VERSION="$VERSION"
+          mkdir -p "$HOME" "$XDG_DATA_HOME" "$VLP_INSTALL_DIR"
+          sh install/install.sh
+          printf '%s\n' "$VLP_INSTALL_DIR" >> "$GITHUB_PATH"
+
+      - name: Smoke-test JS and Python acceptance flows
+        shell: bash
+        run: |
+          set -eu
+          REPORT_DIR="$RUNNER_TEMP/reports/${{ matrix.name }}"
+          mkdir -p "$REPORT_DIR"
+
+          make_repo() {
+            repo_dir=$1
+            source_file=$2
+            initial_body=$3
+            updated_body=$4
+            intent_line=$5
+            context_line=$6
+            mkdir -p "$repo_dir"
+            cd "$repo_dir"
+            git init
+            mkdir -p src
+            printf '%s\n' "$initial_body" > "$source_file"
+            git add .
+            git config user.name Test
+            git config user.email test@example.com
+            git commit -m initial
+            printf '%s\n' "$updated_body" > "$source_file"
+            vlp init
+            vlp contract new sample
+            cat > .vlp/contracts/sample.md <<EOF
+---
+id: sample
+status: draft
+created: 2026-07-30T12:34:56.000Z
+scope: working-tree
+---
+
+## Intent
+
+$intent_line
+
+## Acceptance Criteria
+
+- Search relevance must consider product name, description, category, and tags.
+- Matching must be case-insensitive.
+
+## Exclusions
+
+- None.
+
+## Context
+
+- $context_line
+EOF
+            vlp contract confirm sample
+          }
+
+          JS_REPO="$RUNNER_TEMP/js-repo"
+          make_repo "$JS_REPO" src/search.js 'export function searchProducts(products, query) { return products; }' 'export function searchProducts(products, query) { if (!query) return products; return products.filter((product) => product.name.toLowerCase().includes(query.toLowerCase())); }' 'Build searchProducts(products, query).' 'Review only the changed JS source.'
+          cd "$JS_REPO"
+          vlp --version
+          vlp review --json > review.json || test $? -eq 3
+          SESSION_ID=$(node -p "JSON.parse(require('fs').readFileSync('review.json','utf8')).sessionId")
+          node - <<'NODE'
+const fs = require('fs');
+const review = JSON.parse(fs.readFileSync('review.json', 'utf8'));
+fs.writeFileSync('decisions.json', `${JSON.stringify({
+  sessionId: review.sessionId,
+  decisions: review.questions.map((question) => ({ questionId: question.id, decision: 'accept', answer: '' })),
+}, null, 2)}\n`);
+NODE
+          vlp resolve --session "$SESSION_ID" --input decisions.json --json > resolve.json
+          cp review.json resolve.json .vlp/reviews/*.md "$REPORT_DIR"/
+
+          PY_REPO="$RUNNER_TEMP/py-repo"
+          make_repo "$PY_REPO" src/search.py $'def search_products(products, query):\n    return products' $'def search_products(products, query):\n    if not query:\n        return products\n    lowered = query.lower()\n    return [product for product in products if lowered in product["name"].lower()]' 'Build search_products(products, query).' 'Review only the changed Python source.'
+          cd "$PY_REPO"
+          vlp review --json > review-python.json || test $? -eq 3
+          SESSION_ID=$(node -p "JSON.parse(require('fs').readFileSync('review-python.json','utf8')).sessionId")
+          node - <<'NODE'
+const fs = require('fs');
+const review = JSON.parse(fs.readFileSync('review-python.json', 'utf8'));
+fs.writeFileSync('decisions-python.json', `${JSON.stringify({
+  sessionId: review.sessionId,
+  decisions: review.questions.map((question) => ({ questionId: question.id, decision: 'accept', answer: '' })),
+}, null, 2)}\n`);
+NODE
+          vlp resolve --session "$SESSION_ID" --input decisions-python.json --json > resolve-python.json
+          cp review-python.json resolve-python.json .vlp/reviews/*.md "$REPORT_DIR"/
+
+      - name: Upload smoke reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-reports-${{ matrix.name }}
+          path: ${{ runner.temp }}/reports/${{ matrix.name }}/
+
+      - name: Stop local release fixture
+        if: always()
+        shell: bash
+        run: |
+          if [ -f /tmp/vlp-http.pid ]; then
+            kill "$(cat /tmp/vlp-http.pid)" || true
+          fi
+
+  publish:
+    needs: [build, smoke]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: dist/
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: echo "version=$(node -p \"JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version\")" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          files: dist/v${{ steps.version.outputs.version }}/*
+          fail_on_unmatched_files: true

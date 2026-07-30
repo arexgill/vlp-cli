@@ -1,0 +1,129 @@
+import { lstat, mkdir, readFile, rename, realpath, rm, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+
+import { normalizeReviewSession, normalizeSessionId } from '@arexgill/vlp-core';
+
+import { attachSecondaryErrors } from './error-utils.mjs';
+import { stageAtomicFile } from './staged-file.mjs';
+
+const SESSION_DIR = ['.vlp', 'reviews', '.sessions'];
+
+async function canonicalRoot(root) {
+  return realpath(path.resolve(String(root ?? '.')));
+}
+
+async function ensureNotSymlink(entryPath) {
+  try {
+    const stats = await lstat(entryPath);
+    if (stats.isSymbolicLink()) {
+      throw new Error(`Refusing symbolic link path: ${entryPath}`);
+    }
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      return;
+    }
+    throw error;
+  }
+}
+
+async function prepareSessionDirectory(root) {
+  const canonical = await canonicalRoot(root);
+  const directories = SESSION_DIR.map((segment, index) => path.join(canonical, ...SESSION_DIR.slice(0, index + 1)));
+
+  for (const directory of directories) {
+    await ensureNotSymlink(directory);
+  }
+
+  const sessionDir = directories[directories.length - 1];
+  await mkdir(sessionDir, { recursive: true, mode: 0o700 });
+  return sessionDir;
+}
+
+function validatedSessionId(sessionId) {
+  return normalizeSessionId(sessionId);
+}
+
+function sessionFilePath(root, sessionId) {
+  return path.join(root, ...SESSION_DIR, `${validatedSessionId(sessionId)}.json`);
+}
+
+function assertSessionRecord(record) {
+  if (!record || typeof record !== 'object') {
+    throw new Error('Malformed session file');
+  }
+
+  return normalizeReviewSession(record);
+}
+
+export async function stageSessionSave(root, session, {
+  writeFileFn = writeFile,
+  renameFn = rename,
+  rmFn = rm,
+} = {}) {
+  await prepareSessionDirectory(root);
+  const canonical = await canonicalRoot(root);
+  const normalized = assertSessionRecord(session);
+  const filePath = sessionFilePath(canonical, normalized.sessionId);
+  const payload = `${JSON.stringify(normalized, null, 2)}\n`;
+
+  const staged = await stageAtomicFile(filePath, payload, {
+    writeFileFn,
+    renameFn,
+    rmFn,
+    result: () => normalized,
+  });
+
+  return {
+    normalized,
+    tempPath: staged.tempPath,
+    filePath,
+    backupPath: staged.backupPath,
+    commit: staged.commit,
+    rollback: staged.rollback,
+    cleanup: staged.cleanup,
+  };
+}
+
+export async function saveSession(root, session, options) {
+  const staged = await stageSessionSave(root, session, options);
+  let primaryError = null;
+  let result;
+
+  try {
+    result = await staged.commit();
+  } catch (error) {
+    primaryError = error;
+  }
+
+  const cleanupError = await staged.cleanup().catch((error) => error);
+
+  if (primaryError) {
+    throw attachSecondaryErrors(primaryError, [cleanupError], 'Failed to clean up the staged session file');
+  }
+  if (cleanupError) {
+    throw cleanupError;
+  }
+
+  return result;
+}
+
+export async function loadSession(root, id) {
+  validatedSessionId(id);
+  await prepareSessionDirectory(root);
+  const canonical = await canonicalRoot(root);
+  const filePath = sessionFilePath(canonical, id);
+  await ensureNotSymlink(filePath);
+
+  try {
+    const content = await readFile(filePath, 'utf8');
+    return assertSessionRecord(JSON.parse(content));
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      throw error;
+    }
+    if (error instanceof SyntaxError) {
+      throw new Error('Malformed session file');
+    }
+    throw error;
+  }
+}

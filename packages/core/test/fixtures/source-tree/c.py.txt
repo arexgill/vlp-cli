@@ -1,0 +1,4 @@
+def normalize_user(name: str) -> str:
+    if not name:
+        raise ValueError('name required')
+    return name.strip().lower()

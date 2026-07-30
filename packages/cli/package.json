@@ -1,0 +1,24 @@
+{
+  "name": "@arexgill/vlp-cli",
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./session-store": "./src/session-store.mjs",
+    "./web-server": "./src/web-server.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": ["bin", "scripts", "src"],
+  "dependencies": {
+    "@arexgill/vlp-core": "0.1.0",
+    "@arexgill/vlp-ui": "0.1.0"
+  },
+  "bin": {
+    "vlp": "bin/vlp.mjs"
+  }
+}
