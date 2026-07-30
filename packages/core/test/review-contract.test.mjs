@@ -35,13 +35,15 @@ const contract = {
   text: 'Build searchProducts(products, query). Search relevance must consider product name, description, category, and tags. If the query is empty, return all products. Matching must be case-insensitive.',
 };
 
-test('creates a stable review session without leaking absolute fixture paths', async () => {
+test('creates stable analysis and fingerprint data without leaking absolute fixture paths', async () => {
   const sourceRoot = await materializeFixtureTree();
   const sources = await discoverSources({ root: sourceRoot });
   const first = await reviewContract({ contract, sources });
   const second = await reviewContract({ contract, sources });
 
-  assert.equal(first.id, second.id);
+  assert.equal(first.fingerprint, second.fingerprint);
+  assert.equal(Object.hasOwn(first, 'id'), false);
+  assert.equal(Object.hasOwn(first, 'sessionId'), false);
   assert.equal(first.meta.sourceCount, 3);
   assert.equal(first.meta.engine, 'heuristic-local-poc');
   assert.equal(JSON.stringify(first).includes(sourceRoot), false);

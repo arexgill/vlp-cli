@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { CORE_LIMITS, buildReport, discoverSources, reviewContract } from '@arexgill/vlp-core';
+import { CORE_LIMITS, buildReport, createReviewSession, discoverSources, reviewContract } from '@arexgill/vlp-core';
 
 const fixtureRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'source-tree');
 
@@ -38,7 +38,14 @@ const contract = {
 test('builds an agent-ready report without absolute paths', async () => {
   const sourceRoot = await materializeFixtureTree();
   const sources = await discoverSources({ root: sourceRoot });
-  const session = await reviewContract({ contract, sources });
+  const analysis = await reviewContract({ contract, sources });
+  const session = createReviewSession(
+    {
+      ...analysis,
+      diagnostics: [{ file: 'broken.ts', line: 3, message: 'Unexpected token' }],
+    },
+    { randomUUID: () => '123e4567-e89b-12d3-a456-426614174000' },
+  );
   const correction = 'Search name, description, category, and tags.';
   const acceptedQuestion = session.questions.find((question) => question.type === 'wrong-value') ?? session.questions[0];
   const correctedQuestion = session.questions.find((question) => question.type === 'missing-step') ?? session.questions[0];
@@ -46,10 +53,7 @@ test('builds an agent-ready report without absolute paths', async () => {
 
   const markdown = buildReport({
     contract,
-    session: {
-      ...session,
-      diagnostics: [{ file: 'broken.ts', line: 3, message: 'Unexpected token' }],
-    },
+    session,
     decisions: [
       { questionId: correctedQuestion.id, decision: 'correct', answer: correction },
       { questionId: acceptedQuestion.id, decision: 'accept', answer: 'Keep that behavior.' },
@@ -58,6 +62,7 @@ test('builds an agent-ready report without absolute paths', async () => {
   });
 
   assert.match(markdown, /# VLP Review Report/);
+  assert.match(markdown, new RegExp(`Session: ${session.sessionId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
   assert.match(markdown, /Search name, description, category, and tags/);
   assert.match(markdown, /Keep that behavior/);
   assert.match(markdown, /broken\.ts:3/);
@@ -69,7 +74,8 @@ test('builds an agent-ready report without absolute paths', async () => {
 test('rejects unknown questions, decisions, duplicate answers, empty corrections, and oversized responses', async () => {
   const sourceRoot = await materializeFixtureTree();
   const sources = await discoverSources({ root: sourceRoot });
-  const session = await reviewContract({ contract, sources });
+  const analysis = await reviewContract({ contract, sources });
+  const session = createReviewSession(analysis, { randomUUID: () => '123e4567-e89b-12d3-a456-426614174000' });
   const questionId = session.questions[0].id;
 
   assert.throws(

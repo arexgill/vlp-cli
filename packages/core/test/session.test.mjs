@@ -48,19 +48,23 @@ test('createReviewSession generates a versioned opaque session id from the injec
   assert.equal(first.version, 1);
 });
 
-test('applyDecisions keeps original question evidence and strips caller-supplied replacements', () => {
+test('applyDecisions keeps original question evidence and strips caller-supplied replacements when the session id matches', () => {
   const session = makeSession();
-  const resolved = applyDecisions(session, [
-    {
-      questionId: 'q-1',
-      decision: 'correct',
-      answer: 'Keep it at 42.',
-      question: { ask: 'replace me' },
-      promptEvidence: 'replace me',
-      docUnitIds: ['evil'],
-    },
-  ]);
+  const resolved = applyDecisions(session, {
+    sessionId: ` ${session.sessionId}\r\n`,
+    decisions: [
+      {
+        questionId: 'q-1',
+        decision: 'correct',
+        answer: 'Keep it at 42.',
+        question: { ask: 'replace me' },
+        promptEvidence: 'replace me',
+        docUnitIds: ['evil'],
+      },
+    ],
+  });
 
+  assert.equal(resolved.sessionId, session.sessionId);
   assert.deepEqual(resolved.decisions, [
     {
       questionId: 'q-1',
@@ -72,38 +76,82 @@ test('applyDecisions keeps original question evidence and strips caller-supplied
   assert.equal(resolved.questions[0].promptEvidence, 'Keep the answer at 42.');
 });
 
+test('applyDecisions rejects malformed submitted session ids before validating question decisions', () => {
+  const session = makeSession();
+
+  assert.throws(
+    () =>
+      applyDecisions(session, {
+        sessionId: 'bad',
+        decisions: [{ questionId: 'bad', decision: 'accept', answer: '' }],
+      }),
+    /Invalid review session id/,
+  );
+});
+
+test('applyDecisions rejects mismatched submitted session ids before validating question decisions', () => {
+  const session = makeSession();
+
+  assert.throws(
+    () =>
+      applyDecisions(session, {
+        sessionId: 'session-v1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        decisions: [{ questionId: 'bad', decision: 'accept', answer: '' }],
+      }),
+    /does not match loaded session/,
+  );
+});
+
 test('applyDecisions rejects unknown questions, duplicate answers, invalid decisions, blank corrections, and oversized responses', () => {
   const session = makeSession();
 
   assert.throws(
-    () => applyDecisions(session, [{ questionId: 'bad', decision: 'accept', answer: '' }]),
+    () =>
+      applyDecisions(session, {
+        sessionId: session.sessionId,
+        decisions: [{ questionId: 'bad', decision: 'accept', answer: '' }],
+      }),
     /Unknown question/,
   );
   assert.throws(
-    () => applyDecisions(session, [{ questionId: 'q-1', decision: 'maybe', answer: '' }]),
+    () =>
+      applyDecisions(session, {
+        sessionId: session.sessionId,
+        decisions: [{ questionId: 'q-1', decision: 'maybe', answer: '' }],
+      }),
     /Invalid decision/,
   );
   assert.throws(
-    () => applyDecisions(session, [{ questionId: 'q-1', decision: 'correct', answer: ' ' }]),
+    () =>
+      applyDecisions(session, {
+        sessionId: session.sessionId,
+        decisions: [{ questionId: 'q-1', decision: 'correct', answer: ' ' }],
+      }),
     /Correction text is required/,
   );
   assert.throws(
     () =>
-      applyDecisions(session, [
-        { questionId: 'q-1', decision: 'accept', answer: '' },
-        { questionId: 'q-1', decision: 'accept', answer: '' },
-      ]),
+      applyDecisions(session, {
+        sessionId: session.sessionId,
+        decisions: [
+          { questionId: 'q-1', decision: 'accept', answer: '' },
+          { questionId: 'q-1', decision: 'accept', answer: '' },
+        ],
+      }),
     /Duplicate response/,
   );
   assert.throws(
     () =>
-      applyDecisions(session, [
-        {
-          questionId: 'q-1',
-          decision: 'accept',
-          answer: 'x'.repeat(CORE_LIMITS.maxResponseCharacters + 1),
-        },
-      ]),
+      applyDecisions(session, {
+        sessionId: session.sessionId,
+        decisions: [
+          {
+            questionId: 'q-1',
+            decision: 'accept',
+            answer: 'x'.repeat(CORE_LIMITS.maxResponseCharacters + 1),
+          },
+        ],
+      }),
     new RegExp(`exceeds ${CORE_LIMITS.maxResponseCharacters} characters`),
   );
 });

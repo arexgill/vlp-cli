@@ -1,4 +1,5 @@
 import { CORE_LIMITS } from './limits.mjs';
+import { normalizeSessionId } from './session.mjs';
 
 const DECISIONS = new Set(['accept', 'correct', 'irrelevant']);
 
@@ -8,6 +9,21 @@ function clean(value) {
 
 function questionMap(session) {
   return new Map((session?.questions || []).map((question) => [question.id, question]));
+}
+
+function validateSubmittedDecisionEnvelope(session, submitted) {
+  if (!submitted || typeof submitted !== 'object' || Array.isArray(submitted)) {
+    throw new Error('Submitted decisions must be an object');
+  }
+
+  const loadedSessionId = normalizeSessionId(session?.sessionId);
+  const submittedSessionId = normalizeSessionId(submitted.sessionId);
+
+  if (submittedSessionId !== loadedSessionId) {
+    throw new Error('Submitted session id does not match loaded session');
+  }
+
+  return submitted.decisions;
 }
 
 export function validateSubmittedDecisions(session, submitted) {
@@ -35,7 +51,7 @@ export function validateSubmittedDecisions(session, submitted) {
 }
 
 export function applyDecisions(session, submitted) {
-  const decisions = validateSubmittedDecisions(session, submitted);
+  const decisions = validateSubmittedDecisions(session, validateSubmittedDecisionEnvelope(session, submitted));
 
   return Object.freeze({
     ...session,

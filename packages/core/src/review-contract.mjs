@@ -56,7 +56,7 @@ export async function reviewContract({ contract, sources, runtimeEvidence, analy
     .slice(0, 16);
 
   return Object.freeze({
-    id: `session-${fingerprint}`,
+    fingerprint,
     sources: normalizedSources,
     docUnits: analysis.docUnits,
     diagnostics: analysis.diagnostics,

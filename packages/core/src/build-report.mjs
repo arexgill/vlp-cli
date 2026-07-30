@@ -1,4 +1,5 @@
 import { validateSubmittedDecisions } from './decisions.mjs';
+import { normalizeSessionId } from './session.mjs';
 
 function clean(value) {
   return String(value ?? '').replaceAll('\0', '').replace(/\r\n?/g, '\n').trim();
@@ -103,10 +104,12 @@ export function buildReport({ contract, session, decisions = [] } = {}) {
     'After editing, run the project tests and report any behavior that could not be implemented.',
   ].join('\n');
 
+  const sessionId = normalizeSessionId(session?.sessionId);
+
   return [
     '# VLP Review Report',
     '',
-    `Session: ${clean(session.id)}`,
+    `Session: ${sessionId}`,
     '',
     '## Review Summary',
     '',
