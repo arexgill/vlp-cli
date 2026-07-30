@@ -6,6 +6,9 @@
   "engines": {
     "node": ">=20"
   },
+  "dependencies": {
+    "@arexgill/vlp-core": "file:../core"
+  },
   "bin": {
     "vlp": "bin/vlp.mjs"
   }
