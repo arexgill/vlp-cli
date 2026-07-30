@@ -19,7 +19,7 @@ Installer properties:
 Uninstall:
 
 ```bash
-sh install/uninstall.sh
+sh "${XDG_DATA_HOME:-$HOME/.local/share}/vlp-cli/uninstall.sh"
 ```
 
 ## Terminal-first workflow

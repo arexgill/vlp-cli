@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -57,7 +57,7 @@ async function git(cwd, ...args) {
   assert.equal(code, 0, stderr);
 }
 
-async function createVersionAlias(distDir, fromVersion, toVersion) {
+async function createVersionAlias(distDir, fromVersion, toVersion, { binScript } = {}) {
   const aliasRoot = await mkdtemp(path.join(tmpdir(), 'vlp-release-alias-'));
   const extractRoot = path.join(aliasRoot, 'extract');
   const fromName = `vlp-cli-node-v${fromVersion}`;
@@ -69,23 +69,50 @@ async function createVersionAlias(distDir, fromVersion, toVersion) {
   await exec('tar', ['-xzf', sourceTarball, '-C', extractRoot], { maxBuffer: commandBuffer });
   await rm(path.join(extractRoot, toName), { recursive: true, force: true });
   await exec('mv', [path.join(extractRoot, fromName), path.join(extractRoot, toName)], { maxBuffer: commandBuffer });
+  if (binScript) {
+    await writeFile(path.join(extractRoot, toName, 'bin', 'vlp'), binScript, { mode: 0o755 });
+  }
   await exec('tar', ['-czf', aliasTarball, '-C', extractRoot, toName], { maxBuffer: commandBuffer });
   await rm(aliasRoot, { recursive: true, force: true });
 }
 
 async function buildReleaseArtifacts() {
-  const distDir = await mkdtemp(path.join(tmpdir(), 'vlp-release-dist-'));
-  const build = await run(process.execPath, ['scripts/build-node-bundle.mjs', '--output-dir', distDir]);
-  assert.equal(build.code, 0, build.stderr);
-  await createVersionAlias(distDir, version, '0.1.1');
+  const distRoot = await mkdtemp(path.join(tmpdir(), 'vlp-release-dist-'));
+  const releaseDir = path.join(distRoot, `v${version}`);
+  const releaseDir011 = path.join(distRoot, 'v0.1.1');
+  const releaseDir012 = path.join(distRoot, 'v0.1.2');
+  await mkdir(releaseDir, { recursive: true });
+  await mkdir(releaseDir011, { recursive: true });
+  await mkdir(releaseDir012, { recursive: true });
 
-  const checksums = await run(process.execPath, ['scripts/generate-checksums.mjs', distDir]);
-  assert.equal(checksums.code, 0, checksums.stderr);
+  const build = await run(process.execPath, ['scripts/build-node-bundle.mjs', '--output-dir', releaseDir]);
+  assert.equal(build.code, 0, build.stderr);
+  await createVersionAlias(releaseDir, version, '0.1.1');
+  await createVersionAlias(releaseDir, version, '0.1.2', {
+    binScript: `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf '%s\n' 'v0.1.2'
+  exit 42
+fi
+printf '%s\n' 'v0.1.2'
+exit 42
+`,
+  });
+  await cp(path.join(releaseDir, 'vlp-cli-node-v0.1.1.tar.gz'), path.join(releaseDir011, 'vlp-cli-node-v0.1.1.tar.gz'));
+  await cp(path.join(releaseDir, 'vlp-cli-node-v0.1.2.tar.gz'), path.join(releaseDir012, 'vlp-cli-node-v0.1.2.tar.gz'));
+
+  for (const versionedReleaseDir of [releaseDir, releaseDir011, releaseDir012]) {
+    await cp(path.join(repoRoot, 'install', 'install.sh'), path.join(versionedReleaseDir, 'install.sh'));
+    await cp(path.join(repoRoot, 'install', 'uninstall.sh'), path.join(versionedReleaseDir, 'uninstall.sh'));
+    const checksums = await run(process.execPath, ['scripts/generate-checksums.mjs', versionedReleaseDir]);
+    assert.equal(checksums.code, 0, checksums.stderr);
+  }
 
   return {
-    distDir,
-    tarballPath: path.join(distDir, `vlp-cli-node-v${version}.tar.gz`),
-    checksumPath: path.join(distDir, `vlp-cli-node-v${version}.tar.gz.sha256`),
+    distDir: distRoot,
+    releaseDir,
+    tarballPath: path.join(releaseDir, `vlp-cli-node-v${version}.tar.gz`),
+    checksumPath: path.join(releaseDir, `vlp-cli-node-v${version}.tar.gz.sha256`),
   };
 }
 
@@ -94,10 +121,18 @@ async function listTarEntries(tarballPath) {
   return stdout.split('\n').filter(Boolean);
 }
 
-async function makeReleaseServer({ distDir, latestVersion = version, corruptChecksum = false, interruptVersion = null } = {}) {
-  const tarballName = `vlp-cli-node-v${version}.tar.gz`;
-  const checksumName = `${tarballName}.sha256`;
+function contentTypeForDownload(filePath) {
+  if (filePath.endsWith('.tar.gz')) {
+    return 'application/gzip';
+  }
+  if (filePath.endsWith('.sha256') || filePath.endsWith('.sh') || filePath.endsWith('SHA256SUMS')) {
+    return 'text/plain; charset=utf-8';
+  }
+  return 'application/octet-stream';
+}
 
+async function makeReleaseServer({ distDir, latestVersion = version, corruptChecksum = false, interruptVersion = null } = {}) {
+  const resolvedDistDir = path.resolve(distDir);
   const server = http.createServer(async (request, response) => {
     const url = new URL(request.url || '/', 'http://127.0.0.1');
 
@@ -107,38 +142,43 @@ async function makeReleaseServer({ distDir, latestVersion = version, corruptChec
       return;
     }
 
-    if (url.pathname === `/download/v${version}/${tarballName}`) {
-      const body = await readFile(path.join(distDir, tarballName));
-      response.writeHead(200, { 'content-type': 'application/gzip' });
-      if (interruptVersion === version) {
+    if (url.pathname.startsWith('/download/')) {
+      const relativePath = url.pathname.slice('/download/'.length);
+      const filePath = path.resolve(resolvedDistDir, relativePath);
+      const rootPrefix = `${resolvedDistDir}${path.sep}`;
+      if (filePath !== resolvedDistDir && !filePath.startsWith(rootPrefix)) {
+        response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+        response.end('not found\n');
+        return;
+      }
+
+      const fileName = path.basename(filePath);
+      if (corruptChecksum && fileName === `vlp-cli-node-v${version}.tar.gz.sha256`) {
+        let body = await readFile(filePath, 'utf8');
+        body = body.replace(/^[0-9a-f]+/i, '0'.repeat(64));
+        response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
+        response.end(body);
+        return;
+      }
+
+      if (interruptVersion && fileName === `vlp-cli-node-v${interruptVersion}.tar.gz`) {
+        const body = await readFile(filePath);
+        response.writeHead(200, { 'content-type': 'application/gzip' });
         response.write(body.subarray(0, Math.max(1, Math.floor(body.length / 4))));
         response.destroy();
         return;
       }
-      response.end(body);
-      return;
-    }
 
-    if (url.pathname === `/download/v${version}/${checksumName}`) {
-      let body = await readFile(path.join(distDir, checksumName), 'utf8');
-      if (corruptChecksum) {
-        body = body.replace(/^[0-9a-f]+/i, '0'.repeat(64));
+      try {
+        const body = await readFile(filePath);
+        response.writeHead(200, { 'content-type': contentTypeForDownload(filePath) });
+        response.end(body);
+        return;
+      } catch {
+        response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+        response.end('not found\n');
+        return;
       }
-      response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
-      response.end(body);
-      return;
-    }
-
-    if (url.pathname === '/download/v0.1.1/vlp-cli-node-v0.1.1.tar.gz') {
-      response.writeHead(200, { 'content-type': 'application/gzip' });
-      response.end(await readFile(path.join(distDir, 'vlp-cli-node-v0.1.1.tar.gz')));
-      return;
-    }
-
-    if (url.pathname === '/download/v0.1.1/vlp-cli-node-v0.1.1.tar.gz.sha256') {
-      response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
-      response.end(await readFile(path.join(distDir, 'vlp-cli-node-v0.1.1.tar.gz.sha256'), 'utf8'));
-      return;
     }
 
     response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
@@ -261,6 +301,28 @@ async function fakeBrowserOpeners(root, logPath) {
   }
 }
 
+async function fakeGuardedRm(root, dataHome) {
+  const currentLink = path.join(dataHome, 'vlp-cli', 'current');
+  await writeFile(path.join(root, 'rm'), `#!/bin/sh
+set -eu
+active_target=$(readlink "${currentLink}" 2>/dev/null || true)
+if [ -n "$active_target" ]; then
+  for arg in "$@"; do
+    case "$arg" in
+      -*)
+        continue
+        ;;
+    esac
+    if [ "$arg" = "$active_target" ]; then
+      printf '%s\n' "attempted to delete active generation: $arg" >&2
+      exit 99
+    fi
+  done
+fi
+exec /bin/rm "$@"
+`, { mode: 0o755 });
+}
+
 test('build-node-bundle produces a deterministic fallback tarball with the packaged helper, UI assets, lockfile metadata, and shim', async () => {
   const { tarballPath, checksumPath } = await buildReleaseArtifacts();
   const entries = await listTarEntries(tarballPath);
@@ -334,6 +396,106 @@ test('installer resolves the latest release, installs into a temporary HOME, smo
     assert.equal(pyReview.code, 3, pyReview.stdout + pyReview.stderr);
     assert.match(await readFile(pythonLog, 'utf8'), /extract-python\.py/);
     await assert.rejects(() => readFile(browserLog, 'utf8'));
+  } finally {
+    await server.close();
+  }
+});
+
+test('installer keeps the active generation usable until the atomic switch and leaves orphan generations alone on same-version reinstall', async () => {
+  const artifacts = await buildReleaseArtifacts();
+  const server = await makeReleaseServer({ distDir: artifacts.distDir });
+  const installHome = await makeInstalledHome();
+  const fakeBin = path.join(installHome.root, 'fake-bin');
+  await mkdir(fakeBin, { recursive: true });
+  await fakeGuardedRm(fakeBin, installHome.dataHome);
+
+  try {
+    const firstInstall = await run('sh', ['install/install.sh'], {
+      cwd: repoRoot,
+      env: {
+        HOME: installHome.homeDir,
+        XDG_DATA_HOME: installHome.dataHome,
+        VLP_INSTALL_DIR: installHome.binDir,
+        VLP_RELEASE_BASE_URL: `${server.baseUrl}/download`,
+        VLP_VERSION: version,
+        PATH: `${fakeBin}${path.delimiter}${process.env.PATH}`,
+      },
+    });
+    assert.equal(firstInstall.code, 0, firstInstall.stderr);
+
+    const firstTarget = await realpath(path.join(installHome.binDir, 'vlp'));
+    const orphanDir = path.join(installHome.dataHome, 'vlp-cli', 'orphan-generation');
+    await mkdir(orphanDir, { recursive: true });
+    await writeFile(path.join(orphanDir, 'marker.txt'), 'orphan\n');
+
+    const secondInstall = await run('sh', ['install/install.sh'], {
+      cwd: repoRoot,
+      env: {
+        HOME: installHome.homeDir,
+        XDG_DATA_HOME: installHome.dataHome,
+        VLP_INSTALL_DIR: installHome.binDir,
+        VLP_RELEASE_BASE_URL: `${server.baseUrl}/download`,
+        VLP_VERSION: version,
+        PATH: `${fakeBin}${path.delimiter}${process.env.PATH}`,
+      },
+    });
+    assert.equal(secondInstall.code, 0, secondInstall.stderr);
+
+    const secondTarget = await realpath(path.join(installHome.binDir, 'vlp'));
+    assert.notEqual(secondTarget, firstTarget);
+    assert.equal((await readFile(path.join(orphanDir, 'marker.txt'), 'utf8')).trim(), 'orphan');
+    await assert.rejects(() => realpath(firstTarget));
+
+    const versionResult = await runInstalledVlp(installHome.binDir, ['--version'], {
+      env: { PATH: `${fakeBin}${path.delimiter}${process.env.PATH}` },
+    });
+    assert.equal(versionResult.code, 0, versionResult.stderr);
+    assert.equal(versionResult.stdout.trim(), version);
+  } finally {
+    await server.close();
+  }
+});
+
+test('installer rolls back to the previous generation when the atomic smoke test fails', async () => {
+  const artifacts = await buildReleaseArtifacts();
+  const server = await makeReleaseServer({ distDir: artifacts.distDir });
+  const installHome = await makeInstalledHome();
+
+  try {
+    const firstInstall = await run('sh', ['install/install.sh'], {
+      cwd: repoRoot,
+      env: {
+        HOME: installHome.homeDir,
+        XDG_DATA_HOME: installHome.dataHome,
+        VLP_INSTALL_DIR: installHome.binDir,
+        VLP_RELEASE_BASE_URL: `${server.baseUrl}/download`,
+        VLP_VERSION: version,
+      },
+    });
+    assert.equal(firstInstall.code, 0, firstInstall.stderr);
+
+    const firstTarget = await realpath(path.join(installHome.binDir, 'vlp'));
+    const failedInstall = await run('sh', ['install/install.sh'], {
+      cwd: repoRoot,
+      env: {
+        HOME: installHome.homeDir,
+        XDG_DATA_HOME: installHome.dataHome,
+        VLP_INSTALL_DIR: installHome.binDir,
+        VLP_RELEASE_BASE_URL: `${server.baseUrl}/download`,
+        VLP_VERSION: '0.1.2',
+      },
+    });
+    assert.notEqual(failedInstall.code, 0);
+
+    const currentTarget = await realpath(path.join(installHome.binDir, 'vlp'));
+    assert.equal(currentTarget, firstTarget);
+
+    const versionResult = await runInstalledVlp(installHome.binDir, ['--version']);
+    assert.equal(versionResult.code, 0, versionResult.stderr);
+    assert.equal(versionResult.stdout.trim(), version);
+
+    const generations = await readdir(path.join(installHome.dataHome, 'vlp-cli'));
+    assert(!generations.some((entry) => entry.startsWith('0.1.2')));
   } finally {
     await server.close();
   }
@@ -434,7 +596,7 @@ test('installer verifies checksums, rejects unsupported Node, cleans up interrup
       });
       assert.equal(firstInstall.code, 0, firstInstall.stderr);
       const firstTarget = await realpath(path.join(installHome.binDir, 'vlp'));
-      assert.match(firstTarget, /\/0\.1\.0\//);
+      assert.match(firstTarget, /\/0\.1\.0(?:\.generation\.[^/]+)?\//);
 
       const secondInstall = await run('sh', ['install/install.sh'], {
         cwd: repoRoot,
@@ -449,7 +611,7 @@ test('installer verifies checksums, rejects unsupported Node, cleans up interrup
       });
       assert.equal(secondInstall.code, 0, secondInstall.stderr);
       const secondTarget = await realpath(path.join(installHome.binDir, 'vlp'));
-      assert.match(secondTarget, /\/0\.1\.1\//);
+      assert.match(secondTarget, /\/0\.1\.1(?:\.generation\.[^/]+)?\//);
       assert.notEqual(secondTarget, firstTarget);
 
       const externalTarget = path.join(installHome.root, 'external-vlp');
@@ -457,7 +619,8 @@ test('installer verifies checksums, rejects unsupported Node, cleans up interrup
       await rm(path.join(installHome.binDir, 'vlp'));
       await symlink(externalTarget, path.join(installHome.binDir, 'vlp'));
 
-      const uninstall = await run('sh', ['install/uninstall.sh'], {
+      const installedUninstall = path.join(installHome.dataHome, 'vlp-cli', 'uninstall.sh');
+      const uninstall = await run('sh', [installedUninstall], {
         cwd: repoRoot,
         env: {
           HOME: installHome.homeDir,
@@ -510,6 +673,7 @@ test('release docs/workflow cover the phase-1 installer, privacy, limitations, a
   assert.match(readme, /privacy/i);
   assert.match(readme, /exit code/i);
   assert.match(readme, /uninstall/i);
+  assert.match(readme, /sh "\$\{XDG_DATA_HOME:-\$HOME\/\.local\/share\}\/vlp-cli\/uninstall\.sh"/);
   assert.match(readme, /Phase 1/i);
 
   assert.match(workflow, /ubuntu-latest/);
@@ -517,6 +681,7 @@ test('release docs/workflow cover the phase-1 installer, privacy, limitations, a
   assert.match(workflow, /macos-13/);
   assert.match(workflow, /macos-latest/);
   assert.match(workflow, /build-node-bundle/);
+  assert.match(workflow, /cp install\/install\.sh install\/uninstall\.sh "dist\/v\$VERSION\//);
   assert.match(workflow, /generate-checksums/);
   assert.match(workflow, /vlp review --json/);
   assert.match(workflow, /vlp resolve --session/);

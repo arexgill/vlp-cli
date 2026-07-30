@@ -123,15 +123,54 @@ checksum_value() {
 replace_symlink() {
   source_path=$1
   target_path=$2
-  temp_link=$2.tmp.$$
+  temp_link=${target_path}.tmp.$$
 
   rm -f "$temp_link"
   ln -s "$source_path" "$temp_link"
-  rm -f "$target_path"
-  mv "$temp_link" "$target_path"
+  mv -hf "$temp_link" "$target_path"
+}
+
+owned_link_target() {
+  link_path=$1
+  [ -L "$link_path" ] || return 1
+  target=$(readlink "$link_path" || true)
+  [ -n "$target" ] || return 1
+  case "$target" in
+    "$DATA_DIR"/*)
+      printf '%s\n' "$target"
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+remove_owned_dir() {
+  dir_path=$1
+  [ -n "$dir_path" ] || return 0
+  case "$dir_path" in
+    "$DATA_DIR"/*)
+      rm -rf "$dir_path"
+      ;;
+  esac
+}
+
+copy_staged_file() {
+  source_path=$1
+  target_path=$2
+
+  cp "$source_path" "$target_path"
+  chmod 755 "$target_path"
 }
 
 require_command tar
+require_command mv
+require_command ln
+require_command rm
+require_command cp
+require_command chmod
+require_command readlink
 NODE_BIN=$(resolve_node || true)
 [ -n "$NODE_BIN" ] || fail 'VLP requires Node 20+ via node, node20, or nodejs.'
 DOWNLOADER=$(resolve_downloader || true)
@@ -139,38 +178,96 @@ DOWNLOADER=$(resolve_downloader || true)
 VERSION=$(resolve_version)
 ASSET_NAME=vlp-cli-node-v${VERSION}.tar.gz
 CHECKSUM_NAME=${ASSET_NAME}.sha256
+UNINSTALL_NAME=uninstall.sh
+UNINSTALL_CHECKSUM_NAME=${UNINSTALL_NAME}.sha256
 ASSET_URL=${RELEASE_BASE_URL}/v${VERSION}/${ASSET_NAME}
 CHECKSUM_URL=${RELEASE_BASE_URL}/v${VERSION}/${CHECKSUM_NAME}
+UNINSTALL_URL=${RELEASE_BASE_URL}/v${VERSION}/${UNINSTALL_NAME}
+UNINSTALL_CHECKSUM_URL=${RELEASE_BASE_URL}/v${VERSION}/${UNINSTALL_CHECKSUM_NAME}
 TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/vlp-install.XXXXXX")
 ARCHIVE_PATH=${TMP_DIR}/${ASSET_NAME}
 CHECKSUM_PATH=${TMP_DIR}/${CHECKSUM_NAME}
+UNINSTALL_PATH=${TMP_DIR}/${UNINSTALL_NAME}
+UNINSTALL_CHECKSUM_PATH=${TMP_DIR}/${UNINSTALL_CHECKSUM_NAME}
 EXTRACT_DIR=${TMP_DIR}/extract
-STAGING_DIR=${DATA_DIR}/.${VERSION}.install.$$
-VERSION_DIR=${DATA_DIR}/${VERSION}
+NEW_GENERATION_DIR=
+PREVIOUS_CURRENT_TARGET=
+SWITCHED=0
 CURRENT_LINK=${DATA_DIR}/current
 BIN_LINK=${INSTALL_DIR}/vlp
+UNINSTALL_INSTALL_PATH=${DATA_DIR}/${UNINSTALL_NAME}
+UNINSTALL_STAGE_PATH=${TMP_DIR}/${UNINSTALL_NAME}.stage
 
 cleanup() {
-  rm -rf "$TMP_DIR" "$STAGING_DIR"
+  status=$1
+  rm -rf "$TMP_DIR"
+  if [ "$status" -ne 0 ]; then
+    if [ "$SWITCHED" -eq 1 ]; then
+      rollback_after_switch
+      return
+    fi
+    remove_owned_dir "$NEW_GENERATION_DIR"
+  fi
 }
-trap cleanup EXIT INT TERM HUP
+trap 'cleanup $?' EXIT INT TERM HUP
+
+rollback_after_switch() {
+  if [ -n "$PREVIOUS_CURRENT_TARGET" ]; then
+    replace_symlink "$PREVIOUS_CURRENT_TARGET" "$CURRENT_LINK"
+    replace_symlink "$CURRENT_LINK/bin/vlp" "$BIN_LINK"
+  else
+    rm -f "$BIN_LINK"
+    rm -f "$CURRENT_LINK"
+  fi
+  remove_owned_dir "$NEW_GENERATION_DIR"
+  SWITCHED=0
+}
 
 mkdir -p "$INSTALL_DIR" "$DATA_DIR" "$EXTRACT_DIR"
 fetch_file "$DOWNLOADER" "$ASSET_URL" "$ARCHIVE_PATH" || fail "Failed to download ${ASSET_NAME}"
 fetch_file "$DOWNLOADER" "$CHECKSUM_URL" "$CHECKSUM_PATH" || fail "Failed to download ${CHECKSUM_NAME}"
+fetch_file "$DOWNLOADER" "$UNINSTALL_URL" "$UNINSTALL_PATH" || fail "Failed to download ${UNINSTALL_NAME}"
+fetch_file "$DOWNLOADER" "$UNINSTALL_CHECKSUM_URL" "$UNINSTALL_CHECKSUM_PATH" || fail "Failed to download ${UNINSTALL_CHECKSUM_NAME}"
 EXPECTED_SUM=$(awk '{print $1}' "$CHECKSUM_PATH")
 [ -n "$EXPECTED_SUM" ] || fail 'Downloaded checksum file is empty.'
 ACTUAL_SUM=$(checksum_value "$ARCHIVE_PATH")
 [ "$EXPECTED_SUM" = "$ACTUAL_SUM" ] || fail 'Checksum verification failed.'
+UNINSTALL_EXPECTED_SUM=$(awk '{print $1}' "$UNINSTALL_CHECKSUM_PATH")
+[ -n "$UNINSTALL_EXPECTED_SUM" ] || fail 'Downloaded uninstall checksum file is empty.'
+UNINSTALL_ACTUAL_SUM=$(checksum_value "$UNINSTALL_PATH")
+[ "$UNINSTALL_EXPECTED_SUM" = "$UNINSTALL_ACTUAL_SUM" ] || fail 'Uninstall checksum verification failed.'
 
 tar -xzf "$ARCHIVE_PATH" -C "$EXTRACT_DIR" || fail "Failed to extract ${ASSET_NAME}"
 [ -d "${EXTRACT_DIR}/vlp-cli-node-v${VERSION}" ] || fail 'Release archive had an unexpected layout.'
-rm -rf "$STAGING_DIR"
-mv "${EXTRACT_DIR}/vlp-cli-node-v${VERSION}" "$STAGING_DIR"
-rm -rf "$VERSION_DIR"
-mv "$STAGING_DIR" "$VERSION_DIR"
-replace_symlink "$VERSION_DIR" "$CURRENT_LINK"
+NEW_GENERATION_DIR=$(mktemp -d "${DATA_DIR}/${VERSION}.generation.XXXXXX")
+rmdir "$NEW_GENERATION_DIR"
+mv "${EXTRACT_DIR}/vlp-cli-node-v${VERSION}" "$NEW_GENERATION_DIR"
+PREVIOUS_CURRENT_TARGET=$(owned_link_target "$CURRENT_LINK" || true)
+replace_symlink "$NEW_GENERATION_DIR" "$CURRENT_LINK"
 replace_symlink "$CURRENT_LINK/bin/vlp" "$BIN_LINK"
+SWITCHED=1
+
+if ! "$BIN_LINK" --version >/dev/null 2>&1; then
+  rollback_after_switch
+  fail "Smoke test failed after installing ${VERSION}."
+fi
+
+if ! copy_staged_file "$UNINSTALL_PATH" "$UNINSTALL_STAGE_PATH"; then
+  rollback_after_switch
+  fail "Failed to stage uninstall script."
+fi
+if ! mv -f "$UNINSTALL_STAGE_PATH" "$UNINSTALL_INSTALL_PATH"; then
+  rollback_after_switch
+  fail "Failed to install uninstall script."
+fi
+
+if [ -n "$PREVIOUS_CURRENT_TARGET" ]; then
+  if ! remove_owned_dir "$PREVIOUS_CURRENT_TARGET"; then
+    rollback_after_switch
+    fail "Failed to remove previous generation."
+  fi
+fi
 
 say "Installed vlp ${VERSION} to ${BIN_LINK}"
 say "Using Node command: ${NODE_BIN}"
+say "Installed uninstall script to ${UNINSTALL_INSTALL_PATH}"

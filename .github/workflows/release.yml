@@ -30,9 +30,8 @@ jobs:
           VERSION=$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")
           mkdir -p "dist/v$VERSION"
           node scripts/build-node-bundle.mjs --output-dir "dist/v$VERSION"
+          cp install/install.sh install/uninstall.sh "dist/v$VERSION/"
           node scripts/generate-checksums.mjs "dist/v$VERSION"
-          cp install/install.sh install/uninstall.sh dist/
-          node scripts/generate-checksums.mjs dist
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4
