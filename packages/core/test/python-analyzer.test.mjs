@@ -49,7 +49,7 @@ test('analyzePythonSources invokes only the resolved packaged helper with source
   assert.deepEqual(JSON.parse(stdinData), { files });
 });
 
-test('analyzePythonSources maps helper failures to safe errors', async () => {
+test('analyzePythonSources maps helper failures to stable operational errors', async () => {
   const files = [{ path: 'pkg/example.py', source: 'def example():\n    return 1\n' }];
 
   const missingPythonChild = makeFakeChild();
@@ -61,10 +61,11 @@ test('analyzePythonSources maps helper failures to safe errors', async () => {
     return missingPythonChild;
   };
 
-  await assert.rejects(
-    analyzePythonSources(files, { spawnFn: missingPythonSpawn }),
-    /python3 is required for Python analysis/i,
-  );
+  await assert.rejects(analyzePythonSources(files, { spawnFn: missingPythonSpawn }), (error) => {
+    assert.equal(error.code, 'ERR_VLP_PYTHON_ANALYSIS');
+    assert.equal(error.message, 'Python analysis failed');
+    return true;
+  });
 
   const invalidJsonChild = makeFakeChild();
   invalidJsonChild.stdin = {
@@ -75,10 +76,25 @@ test('analyzePythonSources maps helper failures to safe errors', async () => {
     },
   };
 
-  await assert.rejects(
-    analyzePythonSources(files, { spawnFn: () => invalidJsonChild }),
-    /returned invalid json/i,
-  );
+  await assert.rejects(analyzePythonSources(files, { spawnFn: () => invalidJsonChild }), (error) => {
+    assert.equal(error.code, 'ERR_VLP_PYTHON_ANALYSIS');
+    assert.equal(error.message, 'Python analysis failed');
+    return true;
+  });
+
+  const failingChild = makeFakeChild();
+  failingChild.stdin = {
+    write() {},
+    end() {
+      failingChild.emit('close', 7);
+    },
+  };
+
+  await assert.rejects(analyzePythonSources(files, { spawnFn: () => failingChild }), (error) => {
+    assert.equal(error.code, 'ERR_VLP_PYTHON_ANALYSIS');
+    assert.equal(error.message, 'Python analysis failed');
+    return true;
+  });
 });
 
 test('analyzePythonSources extracts general python units, preserves diagnostics, and never executes fixtures', async () => {

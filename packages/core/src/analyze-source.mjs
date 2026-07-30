@@ -199,19 +199,11 @@ export async function analyzeSources(sources, options = {}) {
   }
 
   if (pythonSources.length > 0) {
-    try {
-      const result = await analyzePythonSources(pythonSources, options);
-      if (Array.isArray(result.units)) docUnits.push(...result.units);
-      if (Array.isArray(result.diagnostics)) diagnostics.push(...result.diagnostics);
-      if (result.frameworkHints && typeof result.frameworkHints === 'object') {
-        frameworkHints = result.frameworkHints;
-      }
-    } catch (error) {
-      diagnostics.push({
-        file: 'python-analyzer',
-        message: error.message,
-        line: 1,
-      });
+    const result = await analyzePythonSources(pythonSources, options);
+    if (Array.isArray(result.units)) docUnits.push(...result.units);
+    if (Array.isArray(result.diagnostics)) diagnostics.push(...result.diagnostics);
+    if (result.frameworkHints && typeof result.frameworkHints === 'object') {
+      frameworkHints = result.frameworkHints;
     }
   }
 

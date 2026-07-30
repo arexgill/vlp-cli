@@ -11,12 +11,10 @@ export function resolvePythonHelperPath() {
   return path.resolve(__dirname, '../scripts/extract-python.py');
 }
 
-function safeAnalyzerError(error) {
-  if (error?.code === 'ENOENT') {
-    return new Error('python3 is required for Python analysis');
-  }
-
-  return new Error('Unable to start Python analysis');
+function safeAnalyzerError() {
+  const error = new Error('Python analysis failed');
+  error.code = 'ERR_VLP_PYTHON_ANALYSIS';
+  return error;
 }
 
 function normalizeResult(payload) {
@@ -56,7 +54,14 @@ export async function analyzePythonSources(files, options = {}) {
     let stdout = '';
     let stdoutBytes = 0;
     let stderrBytes = 0;
-    const child = spawnFn(pythonCommand, [resolvePythonHelperPath()]);
+    let child;
+
+    try {
+      child = spawnFn(pythonCommand, [resolvePythonHelperPath()]);
+    } catch {
+      reject(safeAnalyzerError());
+      return;
+    }
 
     const finish = (callback) => {
       if (settled) return;
@@ -64,8 +69,8 @@ export async function analyzePythonSources(files, options = {}) {
       callback();
     };
 
-    child.on('error', (error) => {
-      finish(() => reject(safeAnalyzerError(error)));
+    child.on('error', () => {
+      finish(() => reject(safeAnalyzerError()));
     });
 
     child.stdout?.on('data', (chunk) => {
@@ -73,7 +78,7 @@ export async function analyzePythonSources(files, options = {}) {
       stdoutBytes += buffer.length;
       if (stdoutBytes > outputLimitBytes) {
         child.kill?.();
-        finish(() => reject(new Error('Python analyzer output exceeded limit')));
+        finish(() => reject(safeAnalyzerError()));
         return;
       }
       stdout += buffer.toString('utf8');
@@ -84,14 +89,14 @@ export async function analyzePythonSources(files, options = {}) {
       stderrBytes += buffer.length;
       if (stderrBytes > outputLimitBytes) {
         child.kill?.();
-        finish(() => reject(new Error('Python analyzer output exceeded limit')));
+        finish(() => reject(safeAnalyzerError()));
       }
     });
 
     child.on('close', (code) => {
       finish(() => {
         if (code !== 0) {
-          reject(new Error(`Python analyzer exited with code ${code}`));
+          reject(safeAnalyzerError());
           return;
         }
 
@@ -99,14 +104,14 @@ export async function analyzePythonSources(files, options = {}) {
         try {
           payload = JSON.parse(stdout);
         } catch {
-          reject(new Error('Python analyzer returned invalid JSON'));
+          reject(safeAnalyzerError());
           return;
         }
 
         try {
           resolve(normalizeResult(payload));
-        } catch (error) {
-          reject(error);
+        } catch {
+          reject(safeAnalyzerError());
         }
       });
     });

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import { buildContractDocument } from '@arexgill/vlp-core';
-import { mkdir, mkdtemp, readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readdir, readFile, stat, symlink, writeFile } from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -103,6 +104,28 @@ async function makePythonCliRepo() {
     }),
   );
 
+  return root;
+}
+
+async function commandPath(command) {
+  const pathDirs = String(process.env.PATH || '').split(path.delimiter).filter(Boolean);
+
+  for (const dir of pathDirs) {
+    const candidate = path.join(dir, command);
+    try {
+      await access(candidate, fsConstants.X_OK);
+      return candidate;
+    } catch {
+      continue;
+    }
+  }
+
+  throw new Error(`Unable to locate ${command}`);
+}
+
+async function makeGitOnlyPath() {
+  const root = await mkdtemp(path.join(tmpdir(), 'vlp-git-only-'));
+  await symlink(await commandPath('git'), path.join(root, 'git'));
   return root;
 }
 
@@ -341,6 +364,29 @@ test('review --json analyzes changed python files and doctor requires python wit
   assert.equal(Array.isArray(json.questions), true);
   assert.equal(json.questions.length > 0, true);
   assert.equal(JSON.stringify(json).includes(root), false);
+});
+
+test('review exits 1 with a stable python analysis error and no persistence when python3 is unavailable', async () => {
+  const root = await makePythonCliRepo();
+  const gitOnlyPath = await makeGitOnlyPath();
+
+  const result = await runCli(['review', '--json'], {
+    cwd: root,
+    env: { PATH: gitOnlyPath },
+  });
+
+  assert.equal(result.code, 1);
+  assert.equal(result.stderr, '');
+
+  const json = JSON.parse(result.stdout);
+  assert.equal(json.command, 'review');
+  assert.equal(json.status, 'error');
+  assert.equal(json.reportPath, null);
+  assert.equal(json.questions, null);
+  assert.equal(json.error.code, 'ERR_VLP_PYTHON_ANALYSIS');
+  assert.equal(json.error.message, 'Python analysis failed');
+  assert.deepEqual(await readdir(path.join(root, '.vlp', 'reviews')), []);
+  await assert.rejects(() => stat(path.join(root, '.vlp', 'reviews', '.sessions')), /ENOENT/);
 });
 
 test('review --web parses but returns a clear not-yet-available result until Task 8', async () => {

@@ -75,3 +75,29 @@ test('returns diagnostics for invalid JS/Python files and preserves other parsea
   assert.equal(result.docUnits.some((unit) => unit.file === 'search.js'), true);
   assert.equal(result.docUnits.some((unit) => unit.file === 'poison.py' && unit.kind === 'raise'), true);
 });
+
+test('propagates python infrastructure failures instead of folding them into diagnostics', async () => {
+  const missingPythonChild = {
+    stdout: { on() {} },
+    stderr: { on() {} },
+    stdin: { write() {}, end() {} },
+    on(event, handler) {
+      if (event === 'error') {
+        queueMicrotask(() => handler(Object.assign(new Error('spawn python3 ENOENT'), { code: 'ENOENT' })));
+      }
+      return this;
+    },
+    kill() {},
+  };
+
+  const spawnFn = () => missingPythonChild;
+
+  await assert.rejects(
+    analyzeSources([{ path: 'broken.py', language: 'python', content: 'def example():\n    return 1\n' }], { spawnFn }),
+    (error) => {
+      assert.equal(error.code, 'ERR_VLP_PYTHON_ANALYSIS');
+      assert.equal(error.message, 'Python analysis failed');
+      return true;
+    },
+  );
+});
