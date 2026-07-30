@@ -22,3 +22,16 @@ Done.
 - Added Python fixture coverage for modules, imports, classes, decorated sync/async functions, signatures/defaults/annotations, conditions, calls, returns/yields, raises, try/except, invalid-file continuation, helper-path exactness, and nonexecution/security checks.
 - Updated `doctor` so generic Python projects require `python3` without requiring Docker; Docker remains FastAPI-only.
 - Tightened the core package manifest to ship only the exact packaged helper file.
+
+## Follow-up Fix
+- Status: Fixed
+- Commit: `ef9385b` — `fix(core): propagate python analysis failures`
+- Tests:
+  - Focused: `node --test packages/core/test/python-analyzer.test.mjs packages/core/test/analyze-sources.test.mjs packages/cli/test/cli.test.mjs`
+  - Root: `npm test`
+  - Check suite: `npm run check`
+  - Diff check: `git diff --check`
+- Concerns: None.
+- Notes:
+  - Python infrastructure failures now surface as `ERR_VLP_PYTHON_ANALYSIS` with the redacted message `Python analysis failed`.
+  - Core analysis no longer folds python infrastructure failures into diagnostics, so review aborts before session/report persistence.
