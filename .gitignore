@@ -1,4 +1,5 @@
 .worktrees/
 .superpowers/
+docs/
 node_modules/
 *.tgz
