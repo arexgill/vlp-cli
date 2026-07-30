@@ -74,3 +74,18 @@ test('runTerminalReview aborts cleanly when the reviewer quits', async () => {
   assert.deepEqual(result.decisions, []);
   assert.match(io.errors(), /aborted/i);
 });
+
+test('runTerminalReview aborts on EOF at Correction without reprompting', async () => {
+  const io = makeIo('c\n');
+  const result = await Promise.race([
+    runTerminalReview({ session, stdin: io.stdin, stdout: io.stdout, stderr: io.stderr }),
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('timed out waiting for EOF abort')), 150);
+    }),
+  ]);
+
+  assert.equal(result.status, 'aborted');
+  assert.deepEqual(result.decisions, []);
+  assert.match(io.errors(), /aborted/i);
+  assert.match(io.output(), /Correction:/);
+});

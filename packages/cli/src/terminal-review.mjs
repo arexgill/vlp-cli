@@ -14,7 +14,7 @@ function evidenceFor(session, question) {
 async function prompt(iterator, stdout, message) {
   stdout.write(message);
   const { value, done } = await iterator.next();
-  return done ? null : String(value ?? '');
+  return done ? null : value;
 }
 
 export async function runTerminalReview({ session, stdin, stdout, stderr }) {
@@ -41,10 +41,16 @@ export async function runTerminalReview({ session, stdin, stdout, stderr }) {
 
       let decision = null;
       while (!decision) {
-        const answer = clean(await prompt(iterator, stdout, '[a]ccept [c]orrect [i]rrelevant [q]uit: '));
-        if (!answer) {
+        const rawAnswer = await prompt(iterator, stdout, '[a]ccept [c]orrect [i]rrelevant [q]uit: ');
+        if (rawAnswer === null) {
           stderr.write('Review aborted.\n');
           return { status: 'aborted', decisions: [] };
+        }
+
+        const answer = clean(rawAnswer);
+        if (!answer) {
+          stderr.write('Enter a, c, i, or q.\n');
+          continue;
         }
 
         const normalized = answer.toLowerCase();
@@ -62,11 +68,12 @@ export async function runTerminalReview({ session, stdin, stdout, stderr }) {
         }
         if (['c', 'correct'].includes(normalized)) {
           for (;;) {
-            const correction = clean(await prompt(iterator, stdout, 'Correction: '));
-            if (correction === null) {
+            const rawCorrection = await prompt(iterator, stdout, 'Correction: ');
+            if (rawCorrection === null) {
               stderr.write('Review aborted.\n');
               return { status: 'aborted', decisions: [] };
             }
+            const correction = clean(rawCorrection);
             if (!correction) {
               stderr.write('Correction text is required.\n');
               continue;

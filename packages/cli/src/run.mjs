@@ -208,6 +208,10 @@ async function runReview(parsed, context) {
   const changedPaths = await selectChangedFiles(root, { staged: parsed.staged, base: parsed.base || undefined });
   const sources = await discoverSources({ root, paths: changedPaths });
   const analysis = await reviewContract({ contract: { content: contractRecord.content }, sources });
+  if (!parsed.json && !isInteractive(tty, stdin, stdout)) {
+    throw new Error('Plain review requires an interactive terminal; use --json or --web');
+  }
+
   const session = createReviewSession(
     {
       contract: reviewableContractRecord(contractRecord),
@@ -220,14 +224,13 @@ async function runReview(parsed, context) {
     { randomUUID },
   );
 
-  await saveSession(root, session);
-
   if (parsed.json) {
     if (session.questions.length === 0) {
       const resolved = applyDecisions(session, { sessionId: session.sessionId, decisions: [] });
       return writeFinalArtifacts(root, 'review', contractRecord, resolved);
     }
 
+    await saveSession(root, session);
     return {
       envelope: createJsonEnvelope({
         command: 'review',
@@ -241,10 +244,6 @@ async function runReview(parsed, context) {
       exitCode: 3,
       reportPath: null,
     };
-  }
-
-  if (!isInteractive(tty, stdin, stdout)) {
-    throw new Error('Plain review requires an interactive terminal; use --json or --web');
   }
 
   const terminalResult = await runTerminalReview({ session, stdin, stdout, stderr });

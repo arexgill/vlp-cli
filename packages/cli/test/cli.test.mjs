@@ -146,8 +146,13 @@ test('review defaults to terminal mode in a TTY and aborts without writing a par
   assert.match(result.stdout, /\[a\]ccept \[c\]orrect \[i\]rrelevant \[q\]uit/i);
   assert.match(result.stderr, /aborted/i);
 
-  const reviewDirEntries = await readdir(path.join(root, '.vlp', 'reviews'));
-  assert.equal(reviewDirEntries.includes(`${`session-v1-${fixedUuid.replaceAll('-', '')}`}.md`), false);
+  const sessionId = `session-v1-${fixedUuid.replaceAll('-', '')}`;
+  const reviewDir = path.join(root, '.vlp', 'reviews');
+  const reviewDirEntries = await readdir(reviewDir);
+  assert.deepEqual(reviewDirEntries, []);
+  await assert.rejects(() => stat(path.join(reviewDir, '.sessions')), /ENOENT/);
+  await assert.rejects(() => stat(path.join(reviewDir, `${sessionId}.md`)), /ENOENT/);
+  await assert.rejects(() => stat(path.join(reviewDir, `${sessionId}.json`)), /ENOENT/);
 });
 
 test('plain review fails safely in a non-TTY and points callers to JSON or web mode', async () => {
@@ -159,6 +164,14 @@ test('plain review fails safely in a non-TTY and points callers to JSON or web m
   assert.equal(result.stdout, '');
   assert.match(result.stderr, /--json/);
   assert.match(result.stderr, /--web/);
+
+  const reviewDir = path.join(root, '.vlp', 'reviews');
+  const sessionId = `session-v1-${fixedUuid.replaceAll('-', '')}`;
+  const reviewDirEntries = await readdir(reviewDir);
+  assert.deepEqual(reviewDirEntries, []);
+  await assert.rejects(() => stat(path.join(reviewDir, '.sessions')), /ENOENT/);
+  await assert.rejects(() => stat(path.join(reviewDir, `${sessionId}.md`)), /ENOENT/);
+  await assert.rejects(() => stat(path.join(reviewDir, `${sessionId}.json`)), /ENOENT/);
 });
 
 test('review --json emits the exact envelope schema and exit code 3 for unresolved questions', async () => {
