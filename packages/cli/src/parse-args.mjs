@@ -21,7 +21,7 @@ export function helpText() {
     '  init',
     '  contract new <name> [--force]',
     '  contract confirm <name>',
-    '  review [--contract <name>] [--staged] [--base <ref>] [--json|--web]',
+    '  review [--contract <name>] [--staged] [--base <ref>] [--json|--web [--no-open]]',
     '  resolve --session <id> --input <path|-> --json',
     '  status',
     '  doctor',
@@ -77,6 +77,7 @@ export function parseArgs(argv = []) {
     let base = null;
     let json = false;
     let web = false;
+    let noOpen = false;
 
     for (let index = 1; index < args.length; index += 1) {
       const value = args[index];
@@ -102,14 +103,21 @@ export function parseArgs(argv = []) {
         web = true;
         continue;
       }
+      if (value === '--no-open') {
+        noOpen = true;
+        continue;
+      }
       throw new Error(`Unexpected argument: ${value}`);
     }
 
     if (json && web) {
       throw new Error('review cannot use --json and --web together');
     }
+    if (noOpen && !web) {
+      throw new Error('review --no-open requires --web');
+    }
 
-    return { command: 'review', contract, staged, base, json, web };
+    return { command: 'review', contract, staged, base, json, web, noOpen };
   }
 
   if (first === 'resolve') {

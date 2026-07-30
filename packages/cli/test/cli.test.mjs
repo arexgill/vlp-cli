@@ -481,11 +481,12 @@ test('review --json does not inject FastAPI runtime diagnostics without explicit
   assert.equal(questions.some((question) => question.type === 'runtime-diagnostic'), false);
 });
 
-test('review --web parses but returns a clear not-yet-available result until Task 8', async () => {
+test('review rejects --no-open unless --web is also selected', async () => {
   const root = await makeCliRepo();
 
-  const result = await runCli(['review', '--web'], { cwd: root });
+  const result = await runCli(['review', '--no-open'], { cwd: root });
 
   assert.equal(result.code, 1);
-  assert.match(result.stderr, /not yet available/i);
+  assert.match(result.stderr, /--no-open/i);
+  assert.match(result.stderr, /--web/i);
 });

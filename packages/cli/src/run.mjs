@@ -1,11 +1,10 @@
 import { execFile } from 'node:child_process';
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
 import {
   applyDecisions,
-  buildReport,
   createReviewSession,
   discoverSources,
   loadConfig,
@@ -15,12 +14,14 @@ import {
 } from '@arexgill/vlp-core';
 
 import { handleContractConfirm, handleContractCreate } from './commands/contract.mjs';
+import { handleWebReview } from './commands/web-review.mjs';
 import { collectFastApiOpenApi } from './fastapi-runtime.mjs';
 import { handleInit } from './commands/init.mjs';
 import { selectChangedFiles } from './git-scope.mjs';
 import { createJsonEnvelope, reviewContractPayload, reviewQuestionPayloads, serializeJsonError, writeJson } from './json-output.mjs';
 import { helpText, parseArgs } from './parse-args.mjs';
 import { resolveProjectRoot } from './project.mjs';
+import { writeFinalArtifacts } from './review-artifacts.mjs';
 import { loadSession, saveSession } from './session-store.mjs';
 import { runTerminalReview } from './terminal-review.mjs';
 
@@ -87,41 +88,6 @@ async function selectContract(root, requestedName) {
     throw new Error('Multiple confirmed contracts found; use --contract <name>');
   }
   return confirmed[0];
-}
-
-function reviewExitCode(session) {
-  if ((session.questions || []).length !== (session.decisions || []).length) return 3;
-  return (session.decisions || []).some((decision) => decision.decision === 'correct') ? 2 : 0;
-}
-
-async function ensureReviewDirectory(root) {
-  const directory = path.join(root, '.vlp', 'reviews');
-  await mkdir(directory, { recursive: true });
-  return directory;
-}
-
-async function writeFinalArtifacts(root, command, contractRecord, resolvedSession) {
-  const reviewDirectory = await ensureReviewDirectory(root);
-  const reportPath = `.vlp/reviews/${resolvedSession.sessionId}.md`;
-  const auditPath = `.vlp/reviews/${resolvedSession.sessionId}.json`;
-  const markdown = buildReport({ contract: resolvedSession.contract, session: resolvedSession, decisions: resolvedSession.decisions });
-  const exitCode = reviewExitCode(resolvedSession);
-  const status = exitCode === 2 ? 'corrections-required' : 'completed';
-  const envelope = createJsonEnvelope({
-    command,
-    status,
-    sessionId: resolvedSession.sessionId,
-    contract: reviewContractPayload(contractRecord || resolvedSession.contract),
-    questions: null,
-    reportPath,
-    error: null,
-  });
-
-  await writeFile(path.join(reviewDirectory, `${resolvedSession.sessionId}.md`), markdown);
-  await writeFile(path.join(reviewDirectory, `${resolvedSession.sessionId}.json`), `${JSON.stringify(envelope, null, 2)}\n`);
-  await saveSession(root, resolvedSession);
-
-  return { envelope, exitCode, reportPath };
 }
 
 async function readInput(stdin) {
@@ -216,9 +182,6 @@ async function handlePlainStructuredResult(result, stdout, stderr, successMessag
 
 async function runReview(parsed, context) {
   const { cwd, stdin, stdout, stderr, randomUUID, tty } = context;
-  if (parsed.web) {
-    throw new Error('review --web is not yet available until Task 8');
-  }
 
   const root = await resolveProjectRoot(cwd);
   const contractRecord = await selectContract(root, parsed.contract);
@@ -236,10 +199,6 @@ async function runReview(parsed, context) {
   }
 
   const analysis = await reviewContract({ contract: { content: contractRecord.content }, sources, runtimeEvidence });
-  if (!parsed.json && !isInteractive(tty, stdin, stdout)) {
-    throw new Error('Plain review requires an interactive terminal; use --json or --web');
-  }
-
   const session = createReviewSession(
     {
       contract: reviewableContractRecord(contractRecord),
@@ -255,7 +214,7 @@ async function runReview(parsed, context) {
   if (parsed.json) {
     if (session.questions.length === 0) {
       const resolved = applyDecisions(session, { sessionId: session.sessionId, decisions: [] });
-      return writeFinalArtifacts(root, 'review', contractRecord, resolved);
+      return writeFinalArtifacts(root, 'review', resolved);
     }
 
     await saveSession(root, session);
@@ -272,6 +231,15 @@ async function runReview(parsed, context) {
       exitCode: 3,
       reportPath: null,
     };
+  }
+
+  if (parsed.web) {
+    await saveSession(root, session);
+    return handleWebReview({ root, session, stdout, open: !parsed.noOpen });
+  }
+
+  if (!isInteractive(tty, stdin, stdout)) {
+    throw new Error('Plain review requires an interactive terminal; use --json or --web');
   }
 
   const terminalResult = await runTerminalReview({ session, stdin, stdout, stderr });
@@ -292,7 +260,7 @@ async function runReview(parsed, context) {
   }
 
   const resolved = applyDecisions(session, { sessionId: session.sessionId, decisions: terminalResult.decisions });
-  return writeFinalArtifacts(root, 'review', contractRecord, resolved);
+  return writeFinalArtifacts(root, 'review', resolved);
 }
 
 async function runResolve(parsed, context) {
@@ -319,7 +287,7 @@ async function runResolve(parsed, context) {
     };
   }
 
-  return writeFinalArtifacts(root, 'resolve', resolved.contract, resolved);
+  return writeFinalArtifacts(root, 'resolve', resolved);
 }
 
 export async function run({ argv = process.argv.slice(2), cwd = process.cwd(), stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, isTTY: tty = {}, randomUUID } = {}) {
@@ -362,7 +330,7 @@ export async function run({ argv = process.argv.slice(2), cwd = process.cwd(), s
       const result = await runReview(parsed, { cwd, stdin, stdout, stderr, randomUUID, tty });
       if (parsed.json) {
         writeJson(stdout, result.envelope);
-      } else if (result.reportPath) {
+      } else if (!parsed.web && result.reportPath) {
         printLine(stdout, `Review report: ${result.reportPath}`);
       }
       return result.exitCode;
