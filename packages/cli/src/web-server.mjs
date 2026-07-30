@@ -1,4 +1,4 @@
-import { DecisionEnvelopeValidationError, normalizeSessionId } from '@arexgill/vlp-core';
+import { CORE_LIMITS, DecisionEnvelopeValidationError, normalizeSessionId } from '@arexgill/vlp-core';
 import { resolveUiAssetRoot } from '@arexgill/vlp-ui';
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
@@ -9,7 +9,7 @@ import { finalizeDecisionSubmission } from './review-artifacts.mjs';
 import { loadSession } from './session-store.mjs';
 
 const HOST = '127.0.0.1';
-export const BODY_LIMIT_BYTES = 128 * 1024;
+export const BODY_LIMIT_BYTES = CORE_LIMITS.decisionEnvelopeBytes;
 const STATIC_ASSETS = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/index.html', ['index.html', 'text/html; charset=utf-8']],

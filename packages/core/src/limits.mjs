@@ -3,6 +3,7 @@ export const CORE_LIMITS = Object.freeze({
   maxSourceFileBytes: 1024 * 1024,
   maxQuestions: 20,
   maxResponseCharacters: 4000,
+  decisionEnvelopeBytes: 128 * 1024,
 });
 
 export function resolveCoreLimits(overrides = {}) {

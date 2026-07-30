@@ -21,8 +21,10 @@ import { handleInit } from './commands/init.mjs';
 import { selectChangedFiles } from './git-scope.mjs';
 import { createJsonEnvelope, reviewContractPayload, reviewQuestionPayloads, serializeJsonError, writeJson } from './json-output.mjs';
 import { helpText, parseArgs } from './parse-args.mjs';
+import { readDecisionEnvelopeInput } from './resolve-input.mjs';
 import { resolveProjectRoot } from './project.mjs';
 import { finalizeDecisionSubmission, writeFinalArtifacts } from './review-artifacts.mjs';
+import { latestReviewSummary, nextStatusCommand } from './status.mjs';
 import { loadSession, saveSession } from './session-store.mjs';
 import { runTerminalReview } from './terminal-review.mjs';
 
@@ -91,19 +93,6 @@ async function selectContract(root, requestedName) {
   return confirmed[0];
 }
 
-async function readInput(stdin) {
-  const chunks = [];
-  for await (const chunk of stdin) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
-  }
-  return Buffer.concat(chunks).toString('utf8');
-}
-
-async function readResolveEnvelope(cwd, inputPath, stdin) {
-  const content = inputPath === '-' ? await readInput(stdin) : await readFile(path.join(cwd, inputPath), 'utf8');
-  return JSON.parse(content);
-}
-
 async function commandAvailable(command, args = ['--version']) {
   try {
     await exec(command, args, { maxBuffer: 1024 * 1024 });
@@ -124,14 +113,15 @@ async function statusLines(cwd) {
   const changedFiles = (await selectChangedFiles(root)).filter((filePath) =>
     SUPPORTED_EXTENSIONS.has(path.extname(filePath)) && matcher.matches(filePath),
   );
+  const latestReview = await latestReviewSummary(root);
 
   return [
     `Version: ${version}`,
     `Repository: ${relativeDisplayPath(cwd, root)}`,
     `Active contract: ${activeContract}`,
     `Changed supported files: ${changedFiles.length}`,
-    `Latest review: none`,
-    `Next: ${activeContract === 'none' ? 'vlp contract confirm <name>' : 'vlp review'}`,
+    `Latest review: ${latestReview ? `${latestReview.status} (${latestReview.sessionId})` : 'none'}`,
+    `Next: ${nextStatusCommand(contracts)}`,
   ];
 }
 
@@ -294,7 +284,7 @@ async function runResolve(parsed, context) {
   const { cwd, stdin, artifactIO } = context;
   const root = await resolveProjectRoot(cwd);
   const session = await loadSession(root, parsed.session);
-  const submitted = await readResolveEnvelope(cwd, parsed.input, stdin);
+  const submitted = await readDecisionEnvelopeInput(cwd, parsed.input, stdin);
   return finalizeDecisionSubmission(root, 'resolve', session, submitted, artifactIO);
 }
 

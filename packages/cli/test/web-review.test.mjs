@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { buildContractDocument, createReviewSession } from '@arexgill/vlp-core';
+import { buildContractDocument, createReviewSession, CORE_LIMITS } from '@arexgill/vlp-core';
 import { mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -153,6 +153,10 @@ test('handleWebReview opens the loopback URL by default and closes the server af
   assert.deepEqual(events, ['closed']);
   assert.match(stdout.text(), /127\.0\.0\.1/);
   assert.match(stdout.text(), /Review report: \.vlp\/reviews\/session-v1-123\.md/);
+});
+
+test('web body limit matches the shared core decision-envelope limit', () => {
+  assert.equal(BODY_LIMIT_BYTES, CORE_LIMITS.decisionEnvelopeBytes);
 });
 
 test('handleWebReview honors open=false and skips the injected browser dependency', async () => {
