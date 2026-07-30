@@ -66,6 +66,7 @@ async function extractWorkspaceTarballs(packResults, packDir, bundleRoot) {
 
 async function copyRuntimeDependencies(bundleRoot) {
   await cp(path.join(repoRoot, 'node_modules', '@babel'), path.join(bundleRoot, 'node_modules', '@babel'), { recursive: true });
+  await cp(path.join(repoRoot, 'node_modules', 'picomatch'), path.join(bundleRoot, 'node_modules', 'picomatch'), { recursive: true });
 }
 
 async function writeShim(bundleRoot) {

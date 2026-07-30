@@ -58,10 +58,8 @@ test('selectChangedFiles returns deterministically ordered working tree changes 
 
   assert.deepEqual(changed, [
     'alpha.txt',
-    'bravo.txt',
     'extra.txt',
     'rename-new.txt',
-    'rename-old.txt',
   ]);
 });
 
@@ -89,18 +87,18 @@ test('selectChangedFiles can scope staged changes and ignores changes outside th
   const changed = await selectChangedFiles(scopeRoot, { staged: true });
 
   assert.deepEqual(changed, [
-    'drop.txt',
     'rename-new.txt',
-    'rename-old.txt',
     'staged.txt',
   ]);
 });
 
-test('selectChangedFiles accepts an explicit base ref and rejects invalid refs', async () => {
+test('selectChangedFiles accepts an explicit base ref, keeps only rename destinations, and skips deletions', async () => {
   const repo = await makeRepo();
   const scopeRoot = path.join(repo, 'scope');
   await writeTree(repo, [
     ['scope/base.txt', 'base'],
+    ['scope/drop.txt', 'drop'],
+    ['scope/rename-old.txt', 'rename'],
     ['scope/keep.txt', 'keep'],
     ['outside.txt', 'outside'],
   ]);
@@ -114,12 +112,30 @@ test('selectChangedFiles accepts an explicit base ref and rejects invalid refs',
     ['outside.txt', 'outside changed'],
   ]);
   await git(repo, 'add', 'scope/new.txt');
+  await git(repo, 'rm', 'scope/drop.txt');
+  await git(repo, 'mv', 'scope/rename-old.txt', 'scope/rename-new.txt');
 
   const changed = await selectChangedFiles(scopeRoot, { base });
-  assert.deepEqual(changed, ['base.txt', 'new.txt']);
+  assert.deepEqual(changed, ['base.txt', 'new.txt', 'rename-new.txt']);
 
   await assert.rejects(
     () => selectChangedFiles(scopeRoot, { base: 'does-not-exist' }),
     /invalid ref/i,
   );
+});
+
+test('selectChangedFiles returns no paths for delete-only changes in the requested scope', async () => {
+  const repo = await makeRepo();
+  const scopeRoot = path.join(repo, 'scope');
+  await writeTree(repo, [
+    ['scope/remove-me.txt', 'remove'],
+    ['scope/keep.txt', 'keep'],
+  ]);
+  await git(repo, 'add', '.');
+  await git(repo, 'commit', '-m', 'initial');
+
+  await rm(path.join(repo, 'scope', 'remove-me.txt'));
+
+  const changed = await selectChangedFiles(scopeRoot);
+  assert.deepEqual(changed, []);
 });

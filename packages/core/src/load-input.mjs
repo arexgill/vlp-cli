@@ -1,13 +1,18 @@
-import { readFile, readdir, stat } from 'node:fs/promises';
+import { lstat, readFile, readdir, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 
+import { DEFAULT_CONFIG } from './config.mjs';
 import { resolveCoreLimits } from './limits.mjs';
+import { createSourcePathMatcher } from './source-paths.mjs';
 
 const JS_TS_PY_EXTENSIONS = Object.freeze(['.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx', '.py']);
 const JS_ONLY_EXTENSIONS = Object.freeze(['.js', '.mjs', '.cjs', '.jsx']);
 const TS_ONLY_EXTENSIONS = Object.freeze(['.ts', '.tsx']);
 const PYTHON_ONLY_EXTENSIONS = Object.freeze(['.py']);
-const IGNORED_DIRECTORIES = new Set(['.git', 'node_modules', 'dist', 'build', 'coverage', '.venv', 'venv', '__pycache__']);
+
+function isMissing(error) {
+  return error?.code === 'ENOENT';
+}
 
 function ensureWithinRoot(rootPath, filePath) {
   const relativePath = path.relative(rootPath, filePath);
@@ -62,99 +67,235 @@ function extensionsFor(languageMode = 'js-ts') {
   throw new Error(`Unsupported language mode: ${languageMode}`);
 }
 
-async function discoverDirectoryFiles(rootPath, directoryPath, extensions) {
-  const entries = await readdir(directoryPath, { withFileTypes: true });
+async function discoverDirectoryFiles(rootPath, directoryPath, extensions, matcher) {
+  const entries = await readdir(directoryPath, { withFileTypes: true }).catch((error) => {
+    if (isMissing(error)) {
+      return null;
+    }
+    throw error;
+  });
+
+  if (!entries) {
+    return [];
+  }
+
   const paths = [];
 
   for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
-    if (entry.isDirectory() && IGNORED_DIRECTORIES.has(entry.name)) {
-      continue;
-    }
-
     const fullPath = path.join(directoryPath, entry.name);
 
     if (entry.isDirectory()) {
-      paths.push(...(await discoverDirectoryFiles(rootPath, fullPath, extensions)));
+      const relativeDirectory = normalizeRelativePath(rootPath, fullPath);
+      if (matcher.shouldPruneDirectory(relativeDirectory)) {
+        continue;
+      }
+
+      paths.push(...(await discoverDirectoryFiles(rootPath, fullPath, extensions, matcher)));
       continue;
     }
 
-    if (entry.isFile() && extensions.has(path.extname(entry.name).toLowerCase())) {
-      paths.push(fullPath);
+    if (!entry.isFile()) {
+      continue;
     }
+
+    if (!extensions.has(path.extname(entry.name).toLowerCase())) {
+      continue;
+    }
+
+    const relativePath = normalizeRelativePath(rootPath, fullPath);
+    if (!matcher.matches(relativePath)) {
+      continue;
+    }
+
+    paths.push({ path: relativePath, filePath: fullPath });
   }
 
   return paths;
 }
 
-function sortByRelativePath(rootPath, paths) {
-  return [...paths].sort((left, right) =>
-    normalizeRelativePath(rootPath, left).localeCompare(normalizeRelativePath(rootPath, right)),
-  );
+function sortByRelativePath(candidates) {
+  return [...candidates].sort((left, right) => left.path.localeCompare(right.path));
 }
 
-async function toSourceFile(rootPath, filePath, limits) {
-  const fileStat = await stat(filePath);
-  const relativePath = normalizeRelativePath(rootPath, filePath);
+async function resolveExplicitEntry(displayRoot, rootPath, entryPath) {
+  const inputPath = String(entryPath);
+  const absolutePath = path.isAbsolute(inputPath)
+    ? path.resolve(inputPath)
+    : path.resolve(displayRoot, inputPath);
+  ensureWithinRoot(displayRoot, absolutePath);
 
-  if (fileStat.size > limits.maxSourceFileBytes) {
-    throw new Error(`Source file exceeds 1 MiB: ${relativePath}`);
+  const entryStats = await lstat(absolutePath).catch((error) => {
+    if (isMissing(error)) {
+      return null;
+    }
+    throw error;
+  });
+
+  if (!entryStats) {
+    return null;
+  }
+
+  const filePath = await realpath(absolutePath).catch((error) => {
+    if (isMissing(error)) {
+      return null;
+    }
+    throw error;
+  });
+
+  if (!filePath) {
+    return null;
+  }
+
+  ensureWithinRoot(rootPath, filePath);
+
+  const fileStats = await stat(filePath).catch((error) => {
+    if (isMissing(error)) {
+      return null;
+    }
+    throw error;
+  });
+
+  if (!fileStats) {
+    return null;
   }
 
   return {
-    path: relativePath,
-    language: languageFor(filePath),
-    content: await readFile(filePath, 'utf8'),
+    displayPath: normalizeRelativePath(displayRoot, absolutePath),
+    filePath,
+    fileStats,
   };
 }
 
-export async function discoverSources({ root, paths = [], languageMode = 'js-ts', limits: limitOverrides } = {}) {
-  const rootPath = path.resolve(String(root ?? '.'));
-  const limits = resolveCoreLimits(limitOverrides);
-  const extensions = extensionsFor(languageMode);
-  const candidates = [];
-  const unsupportedExplicitFiles = [];
-  const queue = paths.length > 0 ? paths : ['.'];
+async function collectExplicitCandidates(displayRoot, rootPath, entryPath, extensions, matcher, unsupportedExplicitFiles) {
+  const resolved = await resolveExplicitEntry(displayRoot, rootPath, entryPath);
+  if (!resolved) {
+    return { candidates: [], resolved: 0 };
+  }
 
-  for (const entryPath of queue) {
-    const absolutePath = path.resolve(rootPath, entryPath);
-    ensureWithinRoot(rootPath, absolutePath);
+  if (resolved.fileStats.isDirectory()) {
+    return {
+      candidates: await discoverDirectoryFiles(rootPath, resolved.filePath, extensions, matcher),
+      resolved: 1,
+    };
+  }
 
-    const entryStat = await stat(absolutePath);
-    if (entryStat.isDirectory()) {
-      candidates.push(...(await discoverDirectoryFiles(rootPath, absolutePath, extensions)));
-      continue;
-    }
+  if (!resolved.fileStats.isFile()) {
+    return { candidates: [], resolved: 1 };
+  }
 
-    const extension = path.extname(absolutePath).toLowerCase();
-    if (entryStat.isFile() && extensions.has(extension)) {
-      candidates.push(absolutePath);
-      continue;
-    }
+  const extension = path.extname(resolved.displayPath).toLowerCase();
+  if (!extensions.has(extension)) {
+    unsupportedExplicitFiles.push(resolved.displayPath);
+    return { candidates: [], resolved: 1 };
+  }
 
-    if (entryStat.isFile()) {
-      unsupportedExplicitFiles.push(absolutePath);
+  if (!matcher.matches(resolved.displayPath)) {
+    return { candidates: [], resolved: 1 };
+  }
+
+  return { candidates: [{ path: resolved.displayPath, filePath: resolved.filePath }], resolved: 1 };
+}
+
+function uniqueCandidates(candidates) {
+  const deduped = new Map();
+
+  for (const candidate of candidates) {
+    if (!deduped.has(candidate.path)) {
+      deduped.set(candidate.path, candidate);
     }
   }
 
-  const uniqueCandidates = sortByRelativePath(rootPath, [...new Set(candidates)]);
+  return sortByRelativePath([...deduped.values()]);
+}
 
-  if (uniqueCandidates.length === 0 && unsupportedExplicitFiles.length > 0) {
+async function toSourceFile(candidate, limits) {
+  const fileStat = await stat(candidate.filePath).catch((error) => {
+    if (isMissing(error)) {
+      return null;
+    }
+    throw error;
+  });
+
+  if (!fileStat) {
+    return null;
+  }
+
+  if (fileStat.size > limits.maxSourceFileBytes) {
+    throw new Error(`Source file exceeds 1 MiB: ${candidate.path}`);
+  }
+
+  const content = await readFile(candidate.filePath, 'utf8').catch((error) => {
+    if (isMissing(error)) {
+      return null;
+    }
+    throw error;
+  });
+
+  if (content === null) {
+    return null;
+  }
+
+  return {
+    path: candidate.path,
+    language: languageFor(candidate.path),
+    content,
+  };
+}
+
+export async function discoverSources({
+  root,
+  paths,
+  languageMode = 'js-ts',
+  limits: limitOverrides,
+  sourceConfig = DEFAULT_CONFIG.source,
+} = {}) {
+  const displayRoot = path.resolve(String(root ?? '.'));
+  const rootPath = await realpath(displayRoot);
+  const limits = resolveCoreLimits(limitOverrides);
+  const extensions = extensionsFor(languageMode);
+  const matcher = createSourcePathMatcher(sourceConfig);
+  const candidates = [];
+  const unsupportedExplicitFiles = [];
+  let resolvedExplicitEntries = 0;
+  const queue = paths === undefined ? ['.'] : paths;
+
+  for (const entryPath of queue) {
+    if (paths === undefined && entryPath === '.') {
+      candidates.push(...(await discoverDirectoryFiles(rootPath, rootPath, extensions, matcher)));
+      continue;
+    }
+
+    const collected = await collectExplicitCandidates(displayRoot, rootPath, entryPath, extensions, matcher, unsupportedExplicitFiles);
+    resolvedExplicitEntries += collected.resolved;
+    candidates.push(...collected.candidates);
+  }
+
+  const unique = uniqueCandidates(candidates);
+
+  if (unique.length === 0 && queue.length === 1 && unsupportedExplicitFiles.length === 1 && resolvedExplicitEntries === 1) {
     throw new Error(`Unsupported code file. Supported extensions: ${[...extensions].join(', ')}`);
   }
 
-  if (uniqueCandidates.length === 0) {
+  if (unique.length === 0) {
     throw new Error('No supported source files were found');
   }
 
-  if (uniqueCandidates.length > limits.maxSourceFiles) {
+  if (unique.length > limits.maxSourceFiles) {
     throw new Error(
-      `Source limit exceeded: ${uniqueCandidates.length} files; maximum is ${limits.maxSourceFiles}`,
+      `Source limit exceeded: ${unique.length} files; maximum is ${limits.maxSourceFiles}`,
     );
   }
 
   const sources = [];
-  for (const filePath of uniqueCandidates) {
-    sources.push(await toSourceFile(rootPath, filePath, limits));
+  for (const candidate of unique) {
+    const source = await toSourceFile(candidate, limits);
+    if (source) {
+      sources.push(source);
+    }
+  }
+
+  if (sources.length === 0) {
+    throw new Error('No supported source files were found');
   }
 
   return sources;

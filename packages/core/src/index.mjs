@@ -7,6 +7,7 @@ export {
 export { buildReport } from './build-report.mjs';
 export { compareFastApiContracts, normalizeFastApiContracts } from './fastapi-contracts.mjs';
 export { DEFAULT_CONFIG, CONFIG_PATH, formatConfig, loadConfig, validateConfigShape } from './config.mjs';
+export { SOURCE_GLOB_LIMITS, createSourcePathMatcher, validateSourceGlobArray } from './source-paths.mjs';
 export {
   CONTRACTS_DIR,
   CONTRACT_FILE_EXTENSION,

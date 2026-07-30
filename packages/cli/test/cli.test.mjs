@@ -154,6 +154,53 @@ async function makeFastApiCliRepo({ runtimeOptIn = false } = {}) {
   return root;
 }
 
+async function makeDeleteOnlyCliRepo() {
+  const root = await mkdtemp(path.join(tmpdir(), 'vlp-cli-delete-only-'));
+  await git(root, 'init');
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src', 'keep.js'), 'export const keep = true;\n');
+  await writeFile(path.join(root, 'src', 'remove-me.js'), 'export const removeMe = true;\n');
+  await git(root, 'add', '.');
+  await git(root, 'commit', '-m', 'initial');
+
+  await stat(path.join(root, 'src', 'remove-me.js'));
+  await initializeProject(root);
+  await writeFile(
+    path.join(root, '.vlp', 'contracts', 'delete-only.md'),
+    buildContractDocument({
+      slug: 'delete-only',
+      created: fixedClock,
+      status: 'confirmed',
+      sections: {
+        Intent: ['Review only changed JS source.'],
+        'Acceptance Criteria': ['- Keep the remaining files stable.'],
+        Exclusions: ['- No other source edits.'],
+        Context: ['- Delete-only changes should not trigger whole-repo discovery.'],
+      },
+    }),
+  );
+
+  await exec('git', ['rm', 'src/remove-me.js'], {
+    cwd: root,
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: 'Test',
+      GIT_AUTHOR_EMAIL: 'test@example.com',
+      GIT_COMMITTER_NAME: 'Test',
+      GIT_COMMITTER_EMAIL: 'test@example.com',
+    },
+  });
+
+  return root;
+}
+
+async function writeConfig(root, updater) {
+  const configPath = path.join(root, '.vlp', 'config.json');
+  const config = JSON.parse(await readFile(configPath, 'utf8'));
+  updater(config);
+  await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
+}
+
 async function commandPath(command) {
   const pathDirs = String(process.env.PATH || '').split(path.delimiter).filter(Boolean);
 
@@ -446,6 +493,48 @@ test('status and doctor stay redacted and never expose environment credential va
   assert.doesNotMatch(doctor.stdout, /\/Users\//);
 });
 
+test('status and review honor configured include/exclude globs for changed files', async () => {
+  const root = await makeCliRepo();
+  await writeConfig(root, (config) => {
+    config.source.include = ['src/**/*.js'];
+    config.source.exclude = ['src/search.js'];
+  });
+
+  const status = await runCli(['status'], { cwd: root });
+  assert.equal(status.code, 0);
+  assert.match(status.stdout, /Changed supported files: 0/);
+
+  const review = await runCli(['review', '--json'], { cwd: root });
+  assert.equal(review.code, 1);
+  const json = JSON.parse(review.stdout);
+  assert.equal(json.status, 'error');
+  assert.equal(json.error.message, 'No supported source files were found');
+  assert.deepEqual(await readdir(path.join(root, '.vlp', 'reviews')), []);
+});
+
+test('invalid existing config fails status, doctor, and review visibly', async () => {
+  const root = await makeCliRepo();
+  await writeConfig(root, (config) => {
+    config.source.include = ['/tmp/**/*.js'];
+  });
+
+  const status = await runCli(['status'], { cwd: root });
+  assert.equal(status.code, 1);
+  assert.match(status.stderr, /relative glob/i);
+
+  const doctor = await runCli(['doctor'], { cwd: root });
+  assert.equal(doctor.code, 1);
+  assert.match(doctor.stderr, /relative glob/i);
+
+  const review = await runCli(['review', '--json'], { cwd: root });
+  assert.equal(review.code, 1);
+  const json = JSON.parse(review.stdout);
+  assert.equal(json.status, 'error');
+  assert.match(json.error.message, /relative glob/i);
+  assert.deepEqual(await readdir(path.join(root, '.vlp', 'reviews')), []);
+});
+
+
 test('review --json analyzes changed python files and doctor requires python without Docker for python projects', async () => {
   const root = await makePythonCliRepo();
 
@@ -486,6 +575,20 @@ test('review exits 1 with a stable python analysis error and no persistence when
   assert.equal(json.questions, null);
   assert.equal(json.error.code, 'ERR_VLP_PYTHON_ANALYSIS');
   assert.equal(json.error.message, 'Python analysis failed');
+  assert.deepEqual(await readdir(path.join(root, '.vlp', 'reviews')), []);
+  await assert.rejects(() => stat(path.join(root, '.vlp', 'reviews', '.sessions')), /ENOENT/);
+});
+
+test('delete-only review fails cleanly without falling back to whole-repo discovery', async () => {
+  const root = await makeDeleteOnlyCliRepo();
+
+  const result = await runCli(['review', '--json'], { cwd: root });
+
+  assert.equal(result.code, 1);
+  assert.equal(result.stderr, '');
+  const json = JSON.parse(result.stdout);
+  assert.equal(json.status, 'error');
+  assert.equal(json.error.message, 'No supported source files were found');
   assert.deepEqual(await readdir(path.join(root, '.vlp', 'reviews')), []);
   await assert.rejects(() => stat(path.join(root, '.vlp', 'reviews', '.sessions')), /ENOENT/);
 });

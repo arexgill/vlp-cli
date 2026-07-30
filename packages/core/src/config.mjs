@@ -1,6 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { createSourcePathMatcher, validateSourceGlobArray } from './source-paths.mjs';
+
 export const CONFIG_PATH = '.vlp/config.json';
 
 export const DEFAULT_CONFIG = Object.freeze({
@@ -39,16 +41,6 @@ function assertExactKeys(object, expectedKeys, subject) {
     if (!(key in object)) {
       throw new Error(`Missing ${subject} key: ${key}`);
     }
-  }
-}
-
-function assertExactArray(value, expected, subject) {
-  if (!Array.isArray(value)) {
-    throw new Error(`Invalid ${subject}: expected an array`);
-  }
-
-  if (value.length !== expected.length || value.some((entry, index) => entry !== expected[index])) {
-    throw new Error(`Invalid ${subject}: expected ${JSON.stringify(expected)}`);
   }
 }
 
@@ -116,8 +108,9 @@ function validateConfig(config) {
 
   ensurePlainObject(config.source, 'Config source must be a plain object');
   assertExactKeys(config.source, ['include', 'exclude'], 'source');
-  assertExactArray(config.source.include, DEFAULT_CONFIG.source.include, 'source.include');
-  assertExactArray(config.source.exclude, DEFAULT_CONFIG.source.exclude, 'source.exclude');
+  const include = validateSourceGlobArray(config.source.include, 'source.include');
+  const exclude = validateSourceGlobArray(config.source.exclude, 'source.exclude');
+  createSourcePathMatcher({ include, exclude });
 
   const runtime = validateRuntime(config.runtime);
 
@@ -127,6 +120,7 @@ function validateConfig(config) {
 
   return freezeConfig({
     ...config,
+    source: { include, exclude },
     runtime,
   });
 }

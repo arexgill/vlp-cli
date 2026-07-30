@@ -23,7 +23,7 @@ async function runGit(cwd, args, { invalidRef } = {}) {
 }
 
 async function resolveGitRoot(root) {
-  return String((await runGit(root, ['rev-parse', '--show-toplevel'])).trim());
+  return realpath(String((await runGit(root, ['rev-parse', '--show-toplevel'])).trim()));
 }
 
 function parsePorcelainStatusOutput(output) {
@@ -39,10 +39,15 @@ function parsePorcelainStatusOutput(output) {
 
     const status = `${match.groups.index}${match.groups.worktree}`;
     const firstPath = match.groups.path;
+    const isRenameOrCopy = status.includes('R') || status.includes('C');
 
-    if (status[0] === 'R' || status[0] === 'C') {
-      const secondPath = records[++index] ?? '';
-      paths.push(firstPath, secondPath);
+    if (isRenameOrCopy) {
+      paths.push(firstPath);
+      index += 1;
+      continue;
+    }
+
+    if (status.includes('D')) {
       continue;
     }
 
@@ -60,13 +65,18 @@ function parseNameStatusOutput(output) {
     const status = records[index];
 
     if (status[0] === 'R' || status[0] === 'C') {
-      const oldPath = records[++index] ?? '';
+      index += 1;
       const newPath = records[++index] ?? '';
-      paths.push(oldPath, newPath);
+      if (newPath) {
+        paths.push(newPath);
+      }
       continue;
     }
 
-    paths.push(records[++index] ?? '');
+    const changedPath = records[++index] ?? '';
+    if (status[0] !== 'D' && changedPath) {
+      paths.push(changedPath);
+    }
   }
 
   return paths;
@@ -105,7 +115,7 @@ async function collectBaseChanges(repoRoot, base) {
 
 export async function selectChangedFiles(root, { staged = false, base } = {}) {
   const scopeRoot = await realpath(path.resolve(String(root ?? '.')));
-  const repoRoot = path.resolve(await resolveGitRoot(scopeRoot));
+  const repoRoot = await resolveGitRoot(scopeRoot);
   const changes = base
     ? await collectBaseChanges(repoRoot, base)
     : staged

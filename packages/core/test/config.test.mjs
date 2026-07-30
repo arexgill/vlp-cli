@@ -30,21 +30,31 @@ test('loadConfig returns the exact version 1 project config with runtime null', 
   assert.deepEqual(await loadConfig(root), expectedConfig);
 });
 
-test('loadConfig accepts and freezes a fastapi runtime object', async () => {
+test('loadConfig accepts bounded relative glob arrays and freezes a fastapi runtime object', async () => {
   const runtime = {
     type: 'fastapi',
     app: 'service.api:app',
   };
   const root = await makeConfigRoot({
     ...expectedConfig,
+    source: {
+      include: ['src/**/*.ts', 'scripts/*.py', '*.js'],
+      exclude: ['dist', '**/*.spec.ts', '**/*.snap.py'],
+    },
     runtime,
   });
 
   const loaded = await loadConfig(root);
   assert.deepEqual(loaded, {
     ...expectedConfig,
+    source: {
+      include: ['src/**/*.ts', 'scripts/*.py', '*.js'],
+      exclude: ['dist', '**/*.spec.ts', '**/*.snap.py'],
+    },
     runtime,
   });
+  assert.equal(Object.isFrozen(loaded.source.include), true);
+  assert.equal(Object.isFrozen(loaded.source.exclude), true);
   assert.equal(Object.isFrozen(loaded.runtime), true);
   assert.equal(loaded.runtime.type, 'fastapi');
   assert.equal(loaded.runtime.app, 'service.api:app');
@@ -85,6 +95,35 @@ test('loadConfig rejects invalid runtime app targets', async () => {
   });
 
   await assert.rejects(loadConfig(root), /conservative python module\/attribute syntax/i);
+});
+
+test('loadConfig rejects invalid source glob arrays before trust-boundary checks continue', async () => {
+  const emptyRoot = await makeConfigRoot({
+    ...expectedConfig,
+    source: {
+      include: [''],
+      exclude: expectedConfig.source.exclude,
+    },
+  });
+  await assert.rejects(loadConfig(emptyRoot), /source\.include/i);
+
+  const absoluteRoot = await makeConfigRoot({
+    ...expectedConfig,
+    source: {
+      include: ['/tmp/**/*.js'],
+      exclude: expectedConfig.source.exclude,
+    },
+  });
+  await assert.rejects(loadConfig(absoluteRoot), /relative glob/i);
+
+  const traversalRoot = await makeConfigRoot({
+    ...expectedConfig,
+    source: {
+      include: ['src/**/*.js'],
+      exclude: ['../secrets'],
+    },
+  });
+  await assert.rejects(loadConfig(traversalRoot), /relative glob/i);
 });
 
 test('loadConfig rejects unknown top-level trust-boundary keys', async () => {

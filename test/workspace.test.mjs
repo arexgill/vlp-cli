@@ -225,6 +225,12 @@ test('packed workspace installs the UI asset-root API and lets the CLI web serve
     './package.json': './package.json',
   });
 
+  const coreManifest = await readTarJson(coreTarball, 'package/package.json');
+  assert.deepEqual(coreManifest.dependencies, {
+    '@babel/parser': '^7.28.5',
+    picomatch: '^4.0.3',
+  });
+
   const coreEntries = await listTarEntries(coreTarball);
   assert(coreEntries.includes('package/scripts/extract-python.py'), 'Missing packaged Python helper');
 
@@ -251,6 +257,7 @@ test('packed workspace installs the UI asset-root API and lets the CLI web serve
   await extractTarball(uiTarball, path.join(scopeRoot, 'vlp-ui'));
   await extractTarball(cliTarball, path.join(scopeRoot, 'vlp-cli'));
   await cp(path.join(repoRoot, 'node_modules', '@babel'), path.join(nodeModulesRoot, '@babel'), { recursive: true });
+  await cp(path.join(repoRoot, 'node_modules', 'picomatch'), path.join(nodeModulesRoot, 'picomatch'), { recursive: true });
 
   const checkPath = path.join(installRoot, 'check-install-layout.mjs');
   await writeFile(checkPath, `

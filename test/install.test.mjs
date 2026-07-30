@@ -351,6 +351,7 @@ test('build-node-bundle produces a deterministic fallback tarball with the packa
   assert(entries.includes(`vlp-cli-node-v${version}/node_modules/@arexgill/vlp-ui/public/index.html`));
   assert(entries.includes(`vlp-cli-node-v${version}/node_modules/@arexgill/vlp-ui/public/styles.css`));
   assert(entries.includes(`vlp-cli-node-v${version}/node_modules/@babel/parser/package.json`));
+  assert(entries.includes(`vlp-cli-node-v${version}/node_modules/picomatch/package.json`));
 
   const checksum = await readFile(checksumPath, 'utf8');
   assert.match(checksum, /^[0-9a-f]{64}  vlp-cli-node-v0\.1\.0\.tar\.gz\n$/);
@@ -370,9 +371,21 @@ test('installed fallback layout exposes collect-openapi.py and resolves FastAPI 
     const resolvedScriptPath = await realpath(scriptPath);
 
     const { collectFastApiOpenApi } = await import(pathToFileURL(path.join(cliPackageRoot, 'src', 'fastapi-runtime.mjs')).href);
+    const { discoverSources } = await import(pathToFileURL(path.join(bundleRoot, 'node_modules', '@arexgill', 'vlp-core', 'src', 'index.mjs')).href);
     const appRoot = path.join(extractRoot, 'app');
     await mkdir(appRoot, { recursive: true });
     await writeFile(path.join(appRoot, 'requirements.txt'), 'fastapi\nuvicorn\n');
+    await mkdir(path.join(appRoot, 'src'), { recursive: true });
+    await writeFile(path.join(appRoot, 'src', 'search.js'), 'export const search = true;\n');
+
+    const discovered = await discoverSources({
+      root: appRoot,
+      sourceConfig: {
+        include: ['src/**/*.js'],
+        exclude: [],
+      },
+    });
+    assert.deepEqual(discovered.map((source) => source.path), ['src/search.js']);
 
     const dockerCalls = [];
     const result = await collectFastApiOpenApi({

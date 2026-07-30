@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -19,6 +19,7 @@ async function materializeFixtureTree() {
     ['c.py', 'c.py.txt'],
     ['poison.js', 'poison.js.txt'],
     ['note.txt', 'note.txt'],
+    ['nested/build/skip.ts', 'b.ts.txt'],
     ['node_modules/ignored.js', 'ignored.js.txt'],
     ['node_modules/ignored.py', 'ignored.py.txt'],
   ];
@@ -86,6 +87,55 @@ test('enforces central file count and file size limits', async () => {
   await writeFile(path.join(sizeRoot, 'big.js'), 'x'.repeat(CORE_LIMITS.maxSourceFileBytes + 1));
 
   await assert.rejects(discoverSources({ root: sizeRoot }), /Source file exceeds 1 MiB/);
+});
+
+test('applies include/exclude globs to explicit paths and full discovery using repository-relative paths', async () => {
+  const sourceRoot = await materializeFixtureTree();
+  const sources = await discoverSources({
+    root: sourceRoot,
+    paths: ['a.js', 'b.ts', 'c.py', 'nested/build/skip.ts'],
+    sourceConfig: {
+      include: ['**/*.ts', '**/*.py'],
+      exclude: ['build', '**/*.py'],
+    },
+  });
+
+  assert.deepEqual(sources.map((source) => source.path), ['b.ts']);
+});
+
+test('skips raced deletions and permits in-root symlinks without importing fixture modules', async () => {
+  delete globalThis.__vlpCoreFixtureImported;
+
+  const sourceRoot = await materializeFixtureTree();
+  const deletedPath = path.join(sourceRoot, 'deleted.js');
+  await writeFile(deletedPath, 'export const deleted = true;\n');
+  await rm(deletedPath);
+  await symlink(path.join(sourceRoot, 'poison.js'), path.join(sourceRoot, 'linked-poison.js'));
+
+  const sources = await discoverSources({
+    root: sourceRoot,
+    paths: [deletedPath, path.join(sourceRoot, 'linked-poison.js')],
+  });
+
+  assert.equal(globalThis.__vlpCoreFixtureImported, undefined);
+  assert.deepEqual(sources.map((source) => source.path), ['linked-poison.js']);
+  assert.equal(sources[0].content.includes('globalThis.__vlpCoreFixtureImported = true;'), true);
+});
+
+test('rejects explicit symlink escapes before reading external source content', async () => {
+  const sourceRoot = await materializeFixtureTree();
+  const outsideRoot = await mkdtemp(path.join(tmpdir(), 'vlp-outside-'));
+  const externalTarget = path.join(outsideRoot, 'escape.js');
+  await writeFile(externalTarget, 'globalThis.__outside = true;\n');
+  await symlink(externalTarget, path.join(sourceRoot, 'escape.js'));
+
+  await assert.rejects(
+    discoverSources({
+      root: sourceRoot,
+      paths: [path.join(sourceRoot, 'escape.js')],
+    }),
+    /outside the configured root/i,
+  );
 });
 
 test('reads source text without importing or evaluating fixture modules', async () => {

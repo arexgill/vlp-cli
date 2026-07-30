@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import {
   applyDecisions,
   createReviewSession,
+  createSourcePathMatcher,
   discoverSources,
   loadConfig,
   normalizeContractSlug,
@@ -115,10 +116,14 @@ async function commandAvailable(command, args = ['--version']) {
 async function statusLines(cwd) {
   const version = await cliVersion();
   const root = await resolveProjectRoot(cwd);
+  const config = await loadConfig(root);
+  const matcher = createSourcePathMatcher(config.source);
   const contracts = await listContracts(root);
   const confirmed = contracts.filter((record) => record.status === 'confirmed');
   const activeContract = confirmed.length === 1 ? confirmed[0].slug : confirmed.length > 1 ? 'multiple' : 'none';
-  const changedFiles = (await selectChangedFiles(root)).filter((filePath) => SUPPORTED_EXTENSIONS.has(path.extname(filePath)));
+  const changedFiles = (await selectChangedFiles(root)).filter((filePath) =>
+    SUPPORTED_EXTENSIONS.has(path.extname(filePath)) && matcher.matches(filePath),
+  );
 
   return [
     `Version: ${version}`,
@@ -135,7 +140,7 @@ async function projectNeedsPython(root, config) {
   if (config?.runtime?.type === 'fastapi') return true;
 
   try {
-    await discoverSources({ root, languageMode: 'python' });
+    await discoverSources({ root, languageMode: 'python', sourceConfig: config?.source });
     return true;
   } catch (error) {
     if (/No supported source files were found/i.test(error.message)) {
@@ -147,24 +152,46 @@ async function projectNeedsPython(root, config) {
 
 async function doctorLines(cwd) {
   const version = await cliVersion();
-  let root = null;
-  let config = null;
+  const lines = [
+    `Version: ${version}`,
+    `Node: available (${process.versions.node})`,
+    `Git: ${await commandAvailable('git') ? 'available' : 'missing'}`,
+  ];
 
+  let root = null;
   try {
     root = await resolveProjectRoot(cwd);
-    config = await loadConfig(root);
   } catch {
-    root = null;
-    config = null;
+    return [
+      ...lines,
+      'Project: not a Git repository or worktree',
+      'Python: not required',
+      'Docker: not required',
+    ];
+  }
+
+  let config;
+  try {
+    config = await loadConfig(root);
+  } catch (error) {
+    if (error?.code !== 'ENOENT') {
+      throw error;
+    }
+
+    return [
+      ...lines,
+      `Project: not initialized (${relativeDisplayPath(cwd, root)})`,
+      'Python: not required',
+      'Docker: not required',
+    ];
   }
 
   const needsDocker = config?.runtime?.type === 'fastapi';
   const needsPython = await projectNeedsPython(root, config);
 
   return [
-    `Version: ${version}`,
-    `Node: available (${process.versions.node})`,
-    `Git: ${await commandAvailable('git') ? 'available' : 'missing'}`,
+    ...lines,
+    `Project: ${relativeDisplayPath(cwd, root)}`,
     `Python: ${needsPython ? (await commandAvailable('python3') ? 'available' : 'missing') : 'not required'}`,
     `Docker: ${needsDocker ? (await commandAvailable('docker') ? 'available' : 'missing') : 'not required'}`,
   ];
@@ -184,18 +211,18 @@ async function runReview(parsed, context) {
   const { cwd, stdin, stdout, stderr, randomUUID, tty, artifactIO } = context;
 
   const root = await resolveProjectRoot(cwd);
+  const config = await loadConfig(root);
   const contractRecord = await selectContract(root, parsed.contract);
   const changedPaths = await selectChangedFiles(root, { staged: parsed.staged, base: parsed.base || undefined });
-  const sources = await discoverSources({ root, paths: changedPaths });
+  const sources = await discoverSources({ root, paths: changedPaths, sourceConfig: config.source });
 
   let runtimeEvidence = null;
-  try {
-    const config = await loadConfig(root);
-    if (config?.runtime?.type === 'fastapi') {
+  if (config?.runtime?.type === 'fastapi') {
+    try {
       runtimeEvidence = await collectFastApiOpenApi({ root, appTarget: config.runtime.app });
+    } catch {
+      runtimeEvidence = null;
     }
-  } catch {
-    runtimeEvidence = null;
   }
 
   const analysis = await reviewContract({ contract: { content: contractRecord.content }, sources, runtimeEvidence });
