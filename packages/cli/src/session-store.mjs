@@ -1,4 +1,4 @@
-import { lstat, mkdir, readFile, rename, realpath, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, rename, realpath, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
@@ -50,18 +50,45 @@ function assertSessionRecord(record) {
   return normalizeReviewSession(record);
 }
 
-export async function saveSession(root, session) {
+export async function stageSessionSave(root, session, {
+  writeFileFn = writeFile,
+  renameFn = rename,
+  rmFn = rm,
+} = {}) {
   const sessionDir = await prepareSessionDirectory(root);
   const canonical = await canonicalRoot(root);
   const normalized = assertSessionRecord(session);
   const filePath = sessionFilePath(canonical, normalized.sessionId);
   const tempPath = path.join(sessionDir, `.${normalized.sessionId}.${randomUUID()}.tmp`);
   const payload = `${JSON.stringify(normalized, null, 2)}\n`;
+  let committed = false;
 
-  await writeFile(tempPath, payload, { mode: 0o600 });
-  await rename(tempPath, filePath);
+  await writeFileFn(tempPath, payload, { mode: 0o600 });
 
-  return normalized;
+  return {
+    normalized,
+    tempPath,
+    filePath,
+    async commit() {
+      await renameFn(tempPath, filePath);
+      committed = true;
+      return normalized;
+    },
+    async cleanup() {
+      if (committed) return;
+      await rmFn(tempPath, { force: true });
+    },
+  };
+}
+
+export async function saveSession(root, session, options) {
+  const staged = await stageSessionSave(root, session, options);
+
+  try {
+    return await staged.commit();
+  } finally {
+    await staged.cleanup();
+  }
 }
 
 export async function loadSession(root, id) {

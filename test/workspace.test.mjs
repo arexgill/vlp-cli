@@ -1,8 +1,14 @@
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { cp, mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
+
+const exec = promisify(execFile);
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const workspacePackagePaths = {
@@ -12,6 +18,22 @@ const workspacePackagePaths = {
 };
 
 const sourceExtensions = new Set(['.js', '.mjs', '.cjs', '.ts', '.tsx']);
+const commandBuffer = 10 * 1024 * 1024;
+
+async function readTarJson(tarballPath, entryPath) {
+  const { stdout } = await exec('tar', ['-xOf', tarballPath, entryPath], { maxBuffer: commandBuffer });
+  return JSON.parse(stdout);
+}
+
+async function listTarEntries(tarballPath) {
+  const { stdout } = await exec('tar', ['-tf', tarballPath], { maxBuffer: commandBuffer });
+  return stdout.split('\n').filter(Boolean);
+}
+
+async function extractTarball(tarballPath, destination) {
+  await mkdir(destination, { recursive: true });
+  await exec('tar', ['-xf', tarballPath, '-C', destination, '--strip-components=1', 'package'], { maxBuffer: commandBuffer });
+}
 
 function readJson(filePath) {
   return JSON.parse(readFileSync(filePath, 'utf8'));
@@ -137,3 +159,93 @@ for (const workspacePath of Object.keys(workspacePackagePaths)) {
     assert.equal(statSync(manifestPath).isFile(), true);
   });
 }
+
+test('packed workspace installs the UI asset-root API and lets the CLI web server serve installed assets', async () => {
+  const packDir = await mkdtemp(path.join(tmpdir(), 'vlp-pack-'));
+  await exec('npm', ['pack', '--workspaces', '--pack-destination', packDir], {
+    cwd: repoRoot,
+    maxBuffer: commandBuffer,
+  });
+
+  const cliTarball = path.join(packDir, 'arexgill-vlp-cli-0.1.0.tgz');
+  const coreTarball = path.join(packDir, 'arexgill-vlp-core-0.1.0.tgz');
+  const uiTarball = path.join(packDir, 'arexgill-vlp-ui-0.1.0.tgz');
+
+  const cliManifest = await readTarJson(cliTarball, 'package/package.json');
+  assert.deepEqual(cliManifest.dependencies, {
+    '@arexgill/vlp-core': '0.1.0',
+    '@arexgill/vlp-ui': '0.1.0',
+  });
+
+  const uiManifest = await readTarJson(uiTarball, 'package/package.json');
+  assert.equal(uiManifest.main, './src/index.mjs');
+  assert.deepEqual(uiManifest.exports, { '.': './src/index.mjs' });
+  assert.deepEqual(uiManifest.files, ['src', 'public']);
+
+  const uiEntries = await listTarEntries(uiTarball);
+  [
+    'package/src/index.mjs',
+    'package/public/index.html',
+    'package/public/styles.css',
+    'package/public/app.mjs',
+    'package/public/web-app.mjs',
+  ].forEach((entry) => {
+    assert(uiEntries.includes(entry), `Missing ${entry} in packed UI tarball`);
+  });
+
+  const installRoot = await mkdtemp(path.join(tmpdir(), 'vlp-install-layout-'));
+  const nodeModulesRoot = path.join(installRoot, 'node_modules');
+  const scopeRoot = path.join(nodeModulesRoot, '@arexgill');
+  await extractTarball(coreTarball, path.join(scopeRoot, 'vlp-core'));
+  await extractTarball(uiTarball, path.join(scopeRoot, 'vlp-ui'));
+  await extractTarball(cliTarball, path.join(scopeRoot, 'vlp-cli'));
+  await cp(path.join(repoRoot, 'node_modules', '@babel'), path.join(nodeModulesRoot, '@babel'), { recursive: true });
+
+  const checkPath = path.join(installRoot, 'check-install-layout.mjs');
+  await writeFile(checkPath, `
+import assert from 'node:assert/strict';
+import { access, mkdir, mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
+import { createReviewSession } from '@arexgill/vlp-core';
+import { resolveUiAssetRoot } from '@arexgill/vlp-ui';
+import { saveSession } from '@arexgill/vlp-cli/src/session-store.mjs';
+import { startWebReviewServer } from '@arexgill/vlp-cli/src/web-server.mjs';
+
+const assetRoot = resolveUiAssetRoot();
+await access(path.join(assetRoot, 'index.html'));
+await access(path.join(assetRoot, 'styles.css'));
+await access(path.join(assetRoot, 'app.mjs'));
+await access(path.join(assetRoot, 'web-app.mjs'));
+
+const root = await mkdtemp(path.join(tmpdir(), 'vlp-installed-web-'));
+await mkdir(path.join(root, '.git'));
+const session = createReviewSession({
+  contract: {
+    id: 'search-scope',
+    slug: 'search-scope',
+    status: 'confirmed',
+    path: '.vlp/contracts/search-scope.md',
+    content: '# Search Scope',
+  },
+  questions: [],
+}, { randomUUID: () => '123e4567-e89b-12d3-a456-426614174000' });
+await saveSession(root, session);
+const server = await startWebReviewServer({ root, sessionId: session.sessionId });
+try {
+  const response = await fetch(server.url + '/');
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /Local only/i);
+} finally {
+  await server.close();
+}
+console.log('ok');
+`, 'utf8');
+
+  const { stdout } = await exec(process.execPath, [checkPath], {
+    cwd: installRoot,
+    maxBuffer: commandBuffer,
+  });
+  assert.match(stdout, /ok/);
+});

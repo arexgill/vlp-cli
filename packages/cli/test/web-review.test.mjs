@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { buildContractDocument, createReviewSession } from '@arexgill/vlp-core';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Readable, Writable } from 'node:stream';
@@ -235,6 +235,43 @@ test('startWebReviewServer binds to loopback, serves only allowlisted assets, an
   });
   assert.equal(oversized.status, 413);
 
+  for (const body of [
+    {
+      sessionId: 'session-v1-ffffffffffffffffffffffffffffffff',
+      decisions: [{ questionId: 'q-search-1', decision: 'accept', answer: '' }],
+    },
+    {
+      sessionId: session.sessionId,
+      decisions: [{ questionId: 'q-forged', decision: 'accept', answer: '', ask: 'FORGED QUESTION TEXT' }],
+    },
+    {
+      sessionId: session.sessionId,
+      decisions: [
+        { questionId: 'q-search-1', decision: 'accept', answer: '' },
+        { questionId: 'q-search-1', decision: 'accept', answer: '' },
+      ],
+    },
+    {
+      sessionId: session.sessionId,
+      decisions: [{ questionId: 'q-search-1', decision: 'correct', answer: '' }],
+    },
+    {
+      sessionId: session.sessionId,
+      decisions: [{ questionId: 'q-search-1', decision: 'forge', answer: '' }],
+    },
+  ]) {
+    const invalid = await fetch(`${server.url}/api/resolve`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify(body),
+    });
+    assert.equal(invalid.status, 400);
+    const invalidPayload = await invalid.json();
+    assert.deepEqual(invalidPayload, { error: 'Invalid decision submission' });
+    assert.equal(JSON.stringify(invalidPayload).includes('q-search-1'), false);
+    assert.equal(JSON.stringify(invalidPayload).includes('FORGED QUESTION TEXT'), false);
+  }
+
   const resolved = await fetch(`${server.url}/api/resolve`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', accept: 'application/json' },
@@ -272,6 +309,56 @@ test('startWebReviewServer binds to loopback, serves only allowlisted assets, an
     decision: 'correct',
     answer: 'Search both the product name and description.',
   }]);
+});
+
+test('web resolve leaves the unresolved persisted session unchanged and cleans staged temp files when final artifact staging fails', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'vlp-web-server-failure-'));
+  const session = await saveSession(root, fixedSession());
+  const sessionPath = path.join(root, '.vlp', 'reviews', '.sessions', `${session.sessionId}.json`);
+  const before = await readFile(sessionPath, 'utf8');
+  let writeCount = 0;
+
+  const server = await startWebReviewServer({
+    root,
+    sessionId: session.sessionId,
+    artifactIO: {
+      async writeFileFn(...args) {
+        writeCount += 1;
+        if (writeCount === 2) {
+          throw new Error('Injected staged write failure');
+        }
+        return writeFile(...args);
+      },
+    },
+  });
+  t.after(async () => {
+    await server.close();
+  });
+
+  const response = await fetch(`${server.url}/api/resolve`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({
+      sessionId: session.sessionId,
+      decisions: [{
+        questionId: 'q-search-1',
+        decision: 'correct',
+        answer: 'Search both the product name and description.',
+      }],
+    }),
+  });
+
+  assert.equal(response.status, 500);
+  assert.deepEqual(await response.json(), { error: 'Internal server error' });
+  assert.equal(await readFile(sessionPath, 'utf8'), before);
+
+  const reviewDirEntries = await readdir(path.join(root, '.vlp', 'reviews'));
+  assert.deepEqual(reviewDirEntries.sort(), ['.sessions']);
+  const sessionDirEntries = await readdir(path.join(root, '.vlp', 'reviews', '.sessions'));
+  assert.deepEqual(sessionDirEntries, [`${session.sessionId}.json`]);
+
+  const loaded = await loadSession(root, session.sessionId);
+  assert.deepEqual(loaded.decisions, []);
 });
 
 test('browser resolve writes a byte-identical report to terminal review for the same decisions', async (t) => {

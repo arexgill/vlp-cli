@@ -1,5 +1,9 @@
 export { analyzeSources, keywordsFrom } from './analyze-source.mjs';
-export { applyDecisions, validateSubmittedDecisions } from './decisions.mjs';
+export {
+  DecisionEnvelopeValidationError,
+  applyDecisions,
+  validateSubmittedDecisions,
+} from './decisions.mjs';
 export { buildReport } from './build-report.mjs';
 export { compareFastApiContracts, normalizeFastApiContracts } from './fastapi-contracts.mjs';
 export { DEFAULT_CONFIG, CONFIG_PATH, formatConfig, loadConfig, validateConfigShape } from './config.mjs';

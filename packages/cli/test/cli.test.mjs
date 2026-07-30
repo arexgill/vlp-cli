@@ -5,11 +5,13 @@ import { access, mkdir, mkdtemp, readdir, readFile, stat, symlink, writeFile } f
 import { constants as fsConstants } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { Readable, Writable } from 'node:stream';
 import test from 'node:test';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 
 import { initializeProject } from '../src/project.mjs';
+import { run } from '../src/run.mjs';
 
 const exec = promisify(execFile);
 const helperPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'run-cli.mjs');
@@ -204,6 +206,17 @@ function runCli(args, { cwd, input = '', env = {} } = {}) {
   });
 }
 
+function writableBuffer() {
+  let text = '';
+  const stream = new Writable({
+    write(chunk, _encoding, callback) {
+      text += Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk);
+      callback();
+    },
+  });
+  return { stream, text: () => text };
+}
+
 test('CLI parses global commands and routes init/contract flows', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'vlp-cli-init-'));
   await git(root, 'init');
@@ -356,6 +369,49 @@ test('resolve accepts stdin input and returns exit code 0 when all decisions are
   const json = JSON.parse(result.stdout);
   assert.equal(json.status, 'completed');
   assert.equal(json.reportPath, `.vlp/reviews/${envelope.sessionId}.md`);
+});
+
+test('resolve leaves the unresolved persisted session unchanged when staged artifact writing fails', async () => {
+  const root = await makeCliRepo();
+  const review = await runCli(['review', '--json'], { cwd: root });
+  const envelope = JSON.parse(review.stdout);
+  const sessionPath = path.join(root, '.vlp', 'reviews', '.sessions', `${envelope.sessionId}.json`);
+  const before = await readFile(sessionPath, 'utf8');
+  const stdout = writableBuffer();
+  const stderr = writableBuffer();
+  let writeCount = 0;
+
+  const exitCode = await run({
+    argv: ['resolve', '--session', envelope.sessionId, '--input', '-', '--json'],
+    cwd: root,
+    stdin: Readable.from([JSON.stringify({
+      sessionId: envelope.sessionId,
+      decisions: envelope.questions.map((question, index) => ({
+        questionId: question.id,
+        decision: index === 0 ? 'correct' : 'accept',
+        answer: index === 0 ? 'Search name, description, category, and tags.' : '',
+      })),
+    })]),
+    stdout: stdout.stream,
+    stderr: stderr.stream,
+    artifactIO: {
+      async writeFileFn(...args) {
+        writeCount += 1;
+        if (writeCount === 2) {
+          throw new Error('Injected staged write failure');
+        }
+        return writeFile(...args);
+      },
+    },
+  });
+
+  assert.equal(exitCode, 1);
+  assert.equal(stderr.text(), '');
+  const json = JSON.parse(stdout.text());
+  assert.equal(json.status, 'error');
+  assert.equal(json.error.message, 'Injected staged write failure');
+  assert.equal(await readFile(sessionPath, 'utf8'), before);
+  assert.deepEqual((await readdir(path.join(root, '.vlp', 'reviews'))).sort(), ['.sessions']);
 });
 
 test('status and doctor stay redacted and never expose environment credential values', async () => {

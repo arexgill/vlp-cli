@@ -21,7 +21,7 @@ import { selectChangedFiles } from './git-scope.mjs';
 import { createJsonEnvelope, reviewContractPayload, reviewQuestionPayloads, serializeJsonError, writeJson } from './json-output.mjs';
 import { helpText, parseArgs } from './parse-args.mjs';
 import { resolveProjectRoot } from './project.mjs';
-import { writeFinalArtifacts } from './review-artifacts.mjs';
+import { finalizeDecisionSubmission, writeFinalArtifacts } from './review-artifacts.mjs';
 import { loadSession, saveSession } from './session-store.mjs';
 import { runTerminalReview } from './terminal-review.mjs';
 
@@ -181,7 +181,7 @@ async function handlePlainStructuredResult(result, stdout, stderr, successMessag
 }
 
 async function runReview(parsed, context) {
-  const { cwd, stdin, stdout, stderr, randomUUID, tty } = context;
+  const { cwd, stdin, stdout, stderr, randomUUID, tty, artifactIO } = context;
 
   const root = await resolveProjectRoot(cwd);
   const contractRecord = await selectContract(root, parsed.contract);
@@ -214,7 +214,7 @@ async function runReview(parsed, context) {
   if (parsed.json) {
     if (session.questions.length === 0) {
       const resolved = applyDecisions(session, { sessionId: session.sessionId, decisions: [] });
-      return writeFinalArtifacts(root, 'review', resolved);
+      return writeFinalArtifacts(root, 'review', resolved, artifactIO);
     }
 
     await saveSession(root, session);
@@ -260,37 +260,18 @@ async function runReview(parsed, context) {
   }
 
   const resolved = applyDecisions(session, { sessionId: session.sessionId, decisions: terminalResult.decisions });
-  return writeFinalArtifacts(root, 'review', resolved);
+  return writeFinalArtifacts(root, 'review', resolved, artifactIO);
 }
 
 async function runResolve(parsed, context) {
-  const { cwd, stdin } = context;
+  const { cwd, stdin, artifactIO } = context;
   const root = await resolveProjectRoot(cwd);
   const session = await loadSession(root, parsed.session);
   const submitted = await readResolveEnvelope(cwd, parsed.input, stdin);
-  const resolved = applyDecisions(session, submitted);
-
-  await saveSession(root, resolved);
-  if (resolved.decisions.length !== resolved.questions.length) {
-    return {
-      envelope: createJsonEnvelope({
-        command: 'resolve',
-        status: 'unresolved',
-        sessionId: resolved.sessionId,
-        contract: reviewContractPayload(resolved.contract),
-        questions: reviewQuestionPayloads(resolved),
-        reportPath: null,
-        error: null,
-      }),
-      exitCode: 3,
-      reportPath: null,
-    };
-  }
-
-  return writeFinalArtifacts(root, 'resolve', resolved);
+  return finalizeDecisionSubmission(root, 'resolve', session, submitted, artifactIO);
 }
 
-export async function run({ argv = process.argv.slice(2), cwd = process.cwd(), stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, isTTY: tty = {}, randomUUID } = {}) {
+export async function run({ argv = process.argv.slice(2), cwd = process.cwd(), stdin = process.stdin, stdout = process.stdout, stderr = process.stderr, isTTY: tty = {}, randomUUID, artifactIO = {} } = {}) {
   try {
     const parsed = parseArgs(argv);
 
@@ -327,7 +308,7 @@ export async function run({ argv = process.argv.slice(2), cwd = process.cwd(), s
     }
 
     if (parsed.command === 'review') {
-      const result = await runReview(parsed, { cwd, stdin, stdout, stderr, randomUUID, tty });
+      const result = await runReview(parsed, { cwd, stdin, stdout, stderr, randomUUID, tty, artifactIO });
       if (parsed.json) {
         writeJson(stdout, result.envelope);
       } else if (!parsed.web && result.reportPath) {
@@ -337,7 +318,7 @@ export async function run({ argv = process.argv.slice(2), cwd = process.cwd(), s
     }
 
     if (parsed.command === 'resolve') {
-      const result = await runResolve(parsed, { cwd, stdin });
+      const result = await runResolve(parsed, { cwd, stdin, artifactIO });
       writeJson(stdout, result.envelope);
       return result.exitCode;
     }

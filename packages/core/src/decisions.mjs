@@ -3,6 +3,18 @@ import { normalizeSessionId } from './session.mjs';
 
 const DECISIONS = new Set(['accept', 'correct', 'irrelevant']);
 
+export class DecisionEnvelopeValidationError extends Error {
+  constructor(code, message) {
+    super(message);
+    this.name = 'DecisionEnvelopeValidationError';
+    this.code = code;
+  }
+}
+
+function validationError(code, message) {
+  return new DecisionEnvelopeValidationError(code, message);
+}
+
 function clean(value) {
   return String(value ?? '').replaceAll('\0', '').replace(/\r\n?/g, '\n').trim();
 }
@@ -13,21 +25,28 @@ function questionMap(session) {
 
 function validateSubmittedDecisionEnvelope(session, submitted) {
   if (!submitted || typeof submitted !== 'object' || Array.isArray(submitted)) {
-    throw new Error('Submitted decisions must be an object');
+    throw validationError('ERR_VLP_DECISION_ENVELOPE', 'Submitted decisions must be an object');
   }
 
   const loadedSessionId = normalizeSessionId(session?.sessionId);
-  const submittedSessionId = normalizeSessionId(submitted.sessionId);
+  let submittedSessionId;
+  try {
+    submittedSessionId = normalizeSessionId(submitted.sessionId);
+  } catch {
+    throw validationError('ERR_VLP_DECISION_SESSION', 'Submitted session id is invalid');
+  }
 
   if (submittedSessionId !== loadedSessionId) {
-    throw new Error('Submitted session id does not match loaded session');
+    throw validationError('ERR_VLP_DECISION_SESSION_MISMATCH', 'Submitted session id does not match loaded session');
   }
 
   return submitted.decisions;
 }
 
 export function validateSubmittedDecisions(session, submitted) {
-  if (!Array.isArray(submitted)) throw new Error('Decisions must be an array');
+  if (!Array.isArray(submitted)) {
+    throw validationError('ERR_VLP_DECISION_ARRAY', 'Decisions must be an array');
+  }
 
   const questions = questionMap(session);
   const seen = new Set();
@@ -37,12 +56,23 @@ export function validateSubmittedDecisions(session, submitted) {
     const value = clean(decision?.decision);
     const answer = clean(decision?.answer);
 
-    if (!questions.has(questionId)) throw new Error(`Unknown question: ${questionId}`);
-    if (!DECISIONS.has(value)) throw new Error(`Invalid decision: ${value}`);
-    if (seen.has(questionId)) throw new Error(`Duplicate response: ${questionId}`);
-    if (value === 'correct' && !answer) throw new Error(`Correction text is required for ${questionId}`);
+    if (!questions.has(questionId)) {
+      throw validationError('ERR_VLP_DECISION_UNKNOWN_QUESTION', `Unknown question: ${questionId}`);
+    }
+    if (!DECISIONS.has(value)) {
+      throw validationError('ERR_VLP_DECISION_INVALID', `Invalid decision: ${value}`);
+    }
+    if (seen.has(questionId)) {
+      throw validationError('ERR_VLP_DECISION_DUPLICATE', `Duplicate response: ${questionId}`);
+    }
+    if (value === 'correct' && !answer) {
+      throw validationError('ERR_VLP_DECISION_MISSING_ANSWER', `Correction text is required for ${questionId}`);
+    }
     if (answer.length > CORE_LIMITS.maxResponseCharacters) {
-      throw new Error(`Answer for ${questionId} exceeds ${CORE_LIMITS.maxResponseCharacters} characters`);
+      throw validationError(
+        'ERR_VLP_DECISION_ANSWER_TOO_LONG',
+        `Answer for ${questionId} exceeds ${CORE_LIMITS.maxResponseCharacters} characters`,
+      );
     }
 
     seen.add(questionId);

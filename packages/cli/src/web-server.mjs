@@ -1,12 +1,12 @@
-import { applyDecisions, normalizeSessionId } from '@arexgill/vlp-core';
+import { DecisionEnvelopeValidationError, normalizeSessionId } from '@arexgill/vlp-core';
+import { resolveUiAssetRoot } from '@arexgill/vlp-ui';
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 import { createJsonEnvelope, reviewContractPayload, reviewQuestionPayloads } from './json-output.mjs';
-import { writeFinalArtifacts } from './review-artifacts.mjs';
-import { loadSession, saveSession } from './session-store.mjs';
+import { finalizeDecisionSubmission } from './review-artifacts.mjs';
+import { loadSession } from './session-store.mjs';
 
 const HOST = '127.0.0.1';
 export const BODY_LIMIT_BYTES = 128 * 1024;
@@ -32,7 +32,7 @@ class HttpError extends Error {
 }
 
 function defaultPublicDirectory() {
-  return fileURLToPath(new URL('../../ui/public/', import.meta.url));
+  return resolveUiAssetRoot();
 }
 
 function send(response, status, body, contentType = 'application/json; charset=utf-8', extraHeaders = {}) {
@@ -124,33 +124,12 @@ async function serveStatic(response, publicDir, pathname, method) {
   }
 }
 
-async function resolveSessionSubmission(root, submitted) {
-  const sessionId = normalizeSessionId(submitted?.sessionId);
+async function resolveSessionSubmission(root, sessionId, submitted, artifactIO) {
   const session = await loadSession(root, sessionId);
-  const resolved = applyDecisions(session, submitted);
-
-  await saveSession(root, resolved);
-  if (resolved.decisions.length !== resolved.questions.length) {
-    return {
-      envelope: createJsonEnvelope({
-        command: 'resolve',
-        status: 'unresolved',
-        sessionId: resolved.sessionId,
-        contract: reviewContractPayload(resolved.contract),
-        questions: reviewQuestionPayloads(resolved),
-        reportPath: null,
-        error: null,
-      }),
-      exitCode: 3,
-      reportPath: null,
-      markdown: null,
-    };
-  }
-
-  return writeFinalArtifacts(root, 'resolve', resolved);
+  return finalizeDecisionSubmission(root, 'resolve', session, submitted, artifactIO);
 }
 
-function createWebReviewServer({ root, sessionId, publicDir = defaultPublicDirectory(), onComplete } = {}) {
+function createWebReviewServer({ root, sessionId, publicDir = defaultPublicDirectory(), onComplete, artifactIO } = {}) {
   const safeSessionId = normalizeSessionId(sessionId);
 
   return http.createServer(async (request, response) => {
@@ -178,7 +157,15 @@ function createWebReviewServer({ root, sessionId, publicDir = defaultPublicDirec
         }
 
         const payload = await readJson(request);
-        const result = await resolveSessionSubmission(root, payload);
+        let result;
+        try {
+          result = await resolveSessionSubmission(root, safeSessionId, payload, artifactIO);
+        } catch (error) {
+          if (error instanceof DecisionEnvelopeValidationError) {
+            throw new HttpError(400, 'Invalid decision submission');
+          }
+          throw error;
+        }
         if (result.exitCode !== 3 && typeof onComplete === 'function') {
           onComplete(result);
         }
@@ -217,7 +204,7 @@ function listen(server, { host = HOST, port = 0 } = {}) {
   });
 }
 
-export async function startWebReviewServer({ root, sessionId, publicDir } = {}) {
+export async function startWebReviewServer({ root, sessionId, publicDir, artifactIO } = {}) {
   let completed = false;
   let resolveCompletion;
   const completion = new Promise((resolve) => {
@@ -228,6 +215,7 @@ export async function startWebReviewServer({ root, sessionId, publicDir } = {}) 
     root,
     sessionId,
     publicDir,
+    artifactIO,
     onComplete(result) {
       if (!completed) {
         completed = true;

@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "license": "MIT",
   "type": "module",
+  "main": "./src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "files": ["src", "public"],
   "engines": {
     "node": ">=20"
   }
