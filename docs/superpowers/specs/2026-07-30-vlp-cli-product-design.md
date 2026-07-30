@@ -39,7 +39,8 @@ scripts/                release and adapter consistency checks
 Installation:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/arexgill/vlp-cli/main/install/install.sh | sh
+curl -fsSL https://github.com/arexgill/vlp-cli/releases/download/v0.1.0/install.sh \
+  | VLP_VERSION=0.1.0 sh
 ```
 
 Project setup and use:
