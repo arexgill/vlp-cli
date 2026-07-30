@@ -1,0 +1,2 @@
+globalThis.__vlpCoreFixtureImported = true;
+throw new Error('fixture code must never execute');
