@@ -11,6 +11,39 @@ function evidenceFor(session, question) {
     .map((unit) => `${unit.file}:${unit.lineStart || 1} — ${unit.text}`);
 }
 
+function formatSourceEvidence(sourceEvidence) {
+  if (!sourceEvidence || typeof sourceEvidence !== 'object' || !sourceEvidence.file) return '';
+  const lineStart = Number.isInteger(sourceEvidence.lineStart) ? sourceEvidence.lineStart : 1;
+  const target = clean(sourceEvidence.target);
+  return `${clean(sourceEvidence.file)}:${lineStart}${target ? ` (Target: ${target})` : ''}`;
+}
+
+function formatRuntimeEvidence(runtimeEvidence) {
+  if (!runtimeEvidence || typeof runtimeEvidence !== 'object') return '';
+  if (runtimeEvidence.type === 'diagnostic') {
+    const message = clean(runtimeEvidence.message);
+    return message ? `[Diagnostic] ${message}` : '[Diagnostic]';
+  }
+
+  const parts = [];
+  if (runtimeEvidence.path) parts.push(clean(runtimeEvidence.path));
+  if (runtimeEvidence.expected) parts.push(`expected=${clean(runtimeEvidence.expected)}`);
+  if (runtimeEvidence.actual) parts.push(`actual=${clean(runtimeEvidence.actual)}`);
+  if (Array.isArray(runtimeEvidence.methods) && runtimeEvidence.methods.length > 0) {
+    parts.push(runtimeEvidence.methods.map((method) => clean(method)).filter(Boolean).join(','));
+  } else if (runtimeEvidence.method) {
+    parts.push(clean(runtimeEvidence.method));
+  }
+  if (runtimeEvidence.status !== undefined && runtimeEvidence.status !== null) {
+    parts.push(`status=${clean(runtimeEvidence.status)}`);
+  }
+  if (runtimeEvidence.responseModel) {
+    parts.push(`responseModel=${clean(runtimeEvidence.responseModel)}`);
+  }
+
+  return `[${clean(runtimeEvidence.type)}] ${parts.join(' ').trim()}`.trim();
+}
+
 async function prompt(iterator, stdout, message) {
   stdout.write(message);
   const { value, done } = await iterator.next();
@@ -31,6 +64,14 @@ export async function runTerminalReview({ session, stdin, stdout, stderr }) {
       stdout.write(`Reason: ${question.reason}\n`);
       if (question.promptEvidence) {
         stdout.write(`Contract: ${question.promptEvidence}\n`);
+      }
+      const sourceEvidence = formatSourceEvidence(question.sourceEvidence);
+      if (sourceEvidence) {
+        stdout.write(`Source evidence: ${sourceEvidence}\n`);
+      }
+      const runtimeEvidence = formatRuntimeEvidence(question.runtimeEvidence);
+      if (runtimeEvidence) {
+        stdout.write(`Runtime OpenAPI evidence: ${runtimeEvidence}\n`);
       }
       if (evidence.length > 0) {
         stdout.write('Evidence:\n');

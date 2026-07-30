@@ -65,6 +65,39 @@ test('runTerminalReview collects single-line corrective input, numbers evidence,
   assert.equal(io.errors(), '');
 });
 
+test('runTerminalReview prints FastAPI source and runtime evidence when present', async () => {
+  const io = makeIo('a\n');
+  const fastApiSession = createReviewSession(
+    {
+      contract: { id: 'api-runtime', text: 'Review the FastAPI route.' },
+      docUnits: [],
+      diagnostics: [],
+      questions: [
+        {
+          id: 'q-fastapi',
+          type: 'method-drift',
+          severity: 'high',
+          title: 'Method drift: /items/{item_id}',
+          ask: 'Static analysis found GET /items/{item_id}, but the runtime schema exposes different methods. Which method is correct?',
+          reason: 'The runtime OpenAPI methods do not match the static FastAPI decorator.',
+          promptEvidence: '/items/{item_id}:get',
+          sourceEvidence: { file: 'src/api.py', lineStart: 6, target: '/items/{item_id}' },
+          runtimeEvidence: { type: 'openapi-drift', path: '/items/{item_id}', methods: ['post'] },
+          docUnitIds: [],
+        },
+      ],
+    },
+    { randomUUID: () => '123e4567-e89b-12d3-a456-426614174000' },
+  );
+
+  const result = await runTerminalReview({ session: fastApiSession, stdin: io.stdin, stdout: io.stdout, stderr: io.stderr });
+
+  assert.equal(result.status, 'completed');
+  assert.match(io.output(), /Source evidence: src\/api\.py:6 \(Target: \/items\/\{item_id\}\)/);
+  assert.match(io.output(), /Runtime OpenAPI evidence: \[openapi-drift\] \/items\/\{item_id\} post/);
+  assert.equal(io.errors(), '');
+});
+
 test('runTerminalReview aborts cleanly when the reviewer quits', async () => {
   const io = makeIo('q\n');
 

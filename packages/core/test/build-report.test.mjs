@@ -71,6 +71,40 @@ test('builds an agent-ready report without absolute paths', async () => {
   assert.doesNotMatch(markdown, /\/Users\//);
 });
 
+test('buildReport renders FastAPI source and runtime evidence for reviewer-facing questions', () => {
+  const session = createReviewSession(
+    {
+      contract: { id: 'api-runtime', text: 'Review the FastAPI route.' },
+      docUnits: [],
+      diagnostics: [],
+      questions: [
+        {
+          id: 'q-fastapi',
+          type: 'method-drift',
+          severity: 'high',
+          title: 'Method drift: /items/{item_id}',
+          ask: 'Static analysis found GET /items/{item_id}, but the runtime schema exposes different methods. Which method is correct?',
+          reason: 'The runtime OpenAPI methods do not match the static FastAPI decorator.',
+          promptEvidence: '/items/{item_id}:get',
+          sourceEvidence: { file: 'src/api.py', lineStart: 6, target: '/items/{item_id}' },
+          runtimeEvidence: { type: 'openapi-drift', path: '/items/{item_id}', methods: ['post'] },
+          docUnitIds: [],
+        },
+      ],
+    },
+    { randomUUID: () => '123e4567-e89b-12d3-a456-426614174000' },
+  );
+
+  const markdown = buildReport({
+    contract: { id: 'api-runtime', text: 'Review the FastAPI route.' },
+    session,
+    decisions: [{ questionId: 'q-fastapi', decision: 'accept', answer: '' }],
+  });
+
+  assert.match(markdown, /Source evidence:\*\* src\/api\.py:6 \(Target: \/items\/\{item_id\}\)/);
+  assert.match(markdown, /Runtime OpenAPI evidence:\*\* \[openapi-drift\] \/items\/\{item_id\} post/);
+});
+
 test('rejects unknown questions, decisions, duplicate answers, empty corrections, and oversized responses', async () => {
   const sourceRoot = await materializeFixtureTree();
   const sources = await discoverSources({ root: sourceRoot });

@@ -48,6 +48,8 @@ export function reviewQuestionPayloads(session) {
       ask: question.ask,
       reason: question.reason,
       promptEvidence: question.promptEvidence || '',
+      sourceEvidence: question.sourceEvidence || null,
+      runtimeEvidence: question.runtimeEvidence || null,
       evidence: evidenceFor(session, question),
     })),
   );

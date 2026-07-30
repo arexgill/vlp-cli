@@ -107,6 +107,51 @@ async function makePythonCliRepo() {
   return root;
 }
 
+async function makeFastApiCliRepo({ runtimeOptIn = false } = {}) {
+  const root = await mkdtemp(path.join(tmpdir(), 'vlp-cli-fastapi-'));
+  await git(root, 'init');
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(
+    path.join(root, 'src', 'api.py'),
+    'def placeholder():\n    return {"ok": True}\n',
+  );
+  await git(root, 'add', '.');
+  await git(root, 'commit', '-m', 'initial');
+
+  await writeFile(
+    path.join(root, 'src', 'api.py'),
+    'from fastapi import FastAPI\n\napp = FastAPI()\n\n\n@app.get("/items/{item_id}")\nasync def read_item(item_id: int):\n    return {"item_id": item_id}\n',
+  );
+
+  await initializeProject(root);
+
+  if (runtimeOptIn) {
+    const configPath = path.join(root, '.vlp', 'config.json');
+    const config = JSON.parse(await readFile(configPath, 'utf8'));
+    config.runtime = { type: 'fastapi', app: 'src.api:app' };
+    await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
+  }
+
+  await writeFile(
+    path.join(root, '.vlp', 'contracts', 'api-runtime.md'),
+    buildContractDocument({
+      slug: 'api-runtime',
+      created: fixedClock,
+      status: 'confirmed',
+      sections: {
+        Intent: ['Review the FastAPI route implementation.'],
+        'Acceptance Criteria': [
+          '- Route /items/{item_id} should stay available.',
+        ],
+        Exclusions: ['- No other runtime integrations.'],
+        Context: ['- Review only the changed Python source.'],
+      },
+    }),
+  );
+
+  return root;
+}
+
 async function commandPath(command) {
   const pathDirs = String(process.env.PATH || '').split(path.delimiter).filter(Boolean);
 
@@ -387,6 +432,53 @@ test('review exits 1 with a stable python analysis error and no persistence when
   assert.equal(json.error.message, 'Python analysis failed');
   assert.deepEqual(await readdir(path.join(root, '.vlp', 'reviews')), []);
   await assert.rejects(() => stat(path.join(root, '.vlp', 'reviews', '.sessions')), /ENOENT/);
+});
+
+test('review --json injects explicit FastAPI runtime diagnostics into JSON/report output while preserving Python analysis', async () => {
+  const root = await makeFastApiCliRepo({ runtimeOptIn: true });
+
+  const review = await runCli(['review', '--json'], { cwd: root });
+
+  assert.equal(review.code, 3);
+  assert.equal(review.stderr, '');
+
+  const json = JSON.parse(review.stdout);
+  const runtimeQuestion = json.questions.find((question) => question.type === 'runtime-diagnostic');
+  assert.ok(runtimeQuestion);
+  assert.deepEqual(runtimeQuestion.sourceEvidence, { file: 'fastapi runtime', lineStart: 0 });
+  assert.deepEqual(runtimeQuestion.runtimeEvidence, { type: 'diagnostic', message: 'No requirements.txt found' });
+  assert.equal(JSON.stringify(json).includes(root), false);
+
+  const storedSession = JSON.parse(await readFile(path.join(root, '.vlp', 'reviews', '.sessions', `${json.sessionId}.json`), 'utf8'));
+  assert.equal(storedSession.docUnits.some((unit) => unit.file === 'src/api.py'), true);
+  assert.equal(storedSession.questions.some((question) => question.type === 'runtime-diagnostic'), true);
+
+  const decisions = json.questions.map((question) => ({
+    questionId: question.id,
+    decision: 'accept',
+    answer: '',
+  }));
+  const resolve = await runCli(['resolve', '--session', json.sessionId, '--input', '-', '--json'], {
+    cwd: root,
+    input: `${JSON.stringify({ sessionId: json.sessionId, decisions })}\n`,
+  });
+
+  assert.equal(resolve.code, 0);
+  const resolved = JSON.parse(resolve.stdout);
+  const report = await readFile(path.join(root, resolved.reportPath), 'utf8');
+  assert.match(report, /Runtime OpenAPI evidence:\*\* \[Diagnostic\] No requirements\.txt found/);
+  assert.doesNotMatch(report, /\/Users\//);
+});
+
+test('review --json does not inject FastAPI runtime diagnostics without explicit runtime config', async () => {
+  const root = await makeFastApiCliRepo();
+
+  const review = await runCli(['review', '--json'], { cwd: root });
+
+  assert.equal(review.stderr, '');
+  const json = JSON.parse(review.stdout);
+  const questions = Array.isArray(json.questions) ? json.questions : [];
+  assert.equal(questions.some((question) => question.type === 'runtime-diagnostic'), false);
 });
 
 test('review --web parses but returns a clear not-yet-available result until Task 8', async () => {
