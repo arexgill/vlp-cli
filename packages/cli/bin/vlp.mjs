@@ -1,4 +1,5 @@
 #!/usr/bin/env node
 
-console.error('vlp CLI is not implemented yet.');
-process.exitCode = 1;
+import { run } from '../src/run.mjs';
+
+process.exitCode = await run();
