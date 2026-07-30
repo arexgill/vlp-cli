@@ -123,11 +123,28 @@ checksum_value() {
 replace_symlink() {
   source_path=$1
   target_path=$2
-  temp_link=${target_path}.tmp.$$
+  temp_link=$(mktemp "${target_path}.tmp.XXXXXX") || return 1
 
   rm -f "$temp_link"
-  ln -s "$source_path" "$temp_link"
-  mv -hf "$temp_link" "$target_path"
+  if ln -s "$source_path" "$temp_link"; then
+    :
+  else
+    status=$?
+    rm -f "$temp_link"
+    return "$status"
+  fi
+
+  if "$NODE_BIN" --input-type=module -e '
+    import { renameSync } from "node:fs";
+    const [tempPath, targetPath] = process.argv.slice(1);
+    renameSync(tempPath, targetPath);
+  ' "$temp_link" "$target_path"; then
+    return 0
+  fi
+
+  status=$?
+  rm -f "$temp_link"
+  return "$status"
 }
 
 owned_link_target() {
@@ -171,6 +188,7 @@ require_command rm
 require_command cp
 require_command chmod
 require_command readlink
+require_command mktemp
 NODE_BIN=$(resolve_node || true)
 [ -n "$NODE_BIN" ] || fail 'VLP requires Node 20+ via node, node20, or nodejs.'
 DOWNLOADER=$(resolve_downloader || true)

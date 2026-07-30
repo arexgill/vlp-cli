@@ -323,6 +323,21 @@ exec /bin/rm "$@"
 `, { mode: 0o755 });
 }
 
+async function fakeMvRejectingH(root) {
+  await writeFile(path.join(root, 'mv'), `#!/bin/sh
+set -eu
+for arg in "$@"; do
+  case "$arg" in
+    -h|-hf|-fh)
+      printf '%s\n' "mv -h is forbidden in atomic symlink replacement" >&2
+      exit 88
+      ;;
+  esac
+done
+exec /bin/mv "$@"
+`, { mode: 0o755 });
+}
+
 test('build-node-bundle produces a deterministic fallback tarball with the packaged helper, UI assets, lockfile metadata, and shim', async () => {
   const { tarballPath, checksumPath } = await buildReleaseArtifacts();
   const entries = await listTarEntries(tarballPath);
@@ -338,6 +353,46 @@ test('build-node-bundle produces a deterministic fallback tarball with the packa
 
   const checksum = await readFile(checksumPath, 'utf8');
   assert.match(checksum, /^[0-9a-f]{64}  vlp-cli-node-v0\.1\.0\.tar\.gz\n$/);
+});
+
+test('installer atomically replaces a preexisting bin symlink without mv -h even when it points at a directory', async () => {
+  const artifacts = await buildReleaseArtifacts();
+  const server = await makeReleaseServer({ distDir: artifacts.distDir });
+  const installHome = await makeInstalledHome();
+  const fakeBin = path.join(installHome.root, 'fake-bin');
+  await mkdir(fakeBin, { recursive: true });
+  await fakeMvRejectingH(fakeBin);
+  const directoryTarget = path.join(installHome.root, 'existing-vlp-directory');
+  await mkdir(directoryTarget, { recursive: true });
+  await symlink(directoryTarget, path.join(installHome.binDir, 'vlp'));
+
+  try {
+    const install = await run('sh', ['install/install.sh'], {
+      cwd: repoRoot,
+      env: {
+        HOME: installHome.homeDir,
+        XDG_DATA_HOME: installHome.dataHome,
+        VLP_INSTALL_DIR: installHome.binDir,
+        VLP_RELEASE_BASE_URL: `${server.baseUrl}/download`,
+        VLP_VERSION: version,
+        PATH: `${fakeBin}${path.delimiter}${process.env.PATH}`,
+      },
+    });
+
+    assert.equal(install.code, 0, install.stderr);
+    assert.match(install.stdout, /Installed vlp/);
+
+    const binTarget = await realpath(path.join(installHome.binDir, 'vlp'));
+    assert.match(binTarget, /\/0\.1\.0(?:\.generation\.[^/]+)?\/bin\/vlp$/);
+
+    const versionResult = await runInstalledVlp(installHome.binDir, ['--version'], {
+      env: { PATH: `${fakeBin}${path.delimiter}${process.env.PATH}` },
+    });
+    assert.equal(versionResult.code, 0, versionResult.stderr);
+    assert.equal(versionResult.stdout.trim(), version);
+  } finally {
+    await server.close();
+  }
 });
 
 test('installer resolves the latest release, installs into a temporary HOME, smoke-tests JS/Python flows, and generic Python uses host python3', async () => {
@@ -475,6 +530,10 @@ test('installer rolls back to the previous generation when the atomic smoke test
     assert.equal(firstInstall.code, 0, firstInstall.stderr);
 
     const firstTarget = await realpath(path.join(installHome.binDir, 'vlp'));
+    const orphanDir = path.join(installHome.dataHome, 'vlp-cli', 'orphan-generation');
+    await mkdir(orphanDir, { recursive: true });
+    await writeFile(path.join(orphanDir, 'marker.txt'), 'orphan\n');
+
     const failedInstall = await run('sh', ['install/install.sh'], {
       cwd: repoRoot,
       env: {
@@ -495,7 +554,8 @@ test('installer rolls back to the previous generation when the atomic smoke test
     assert.equal(versionResult.stdout.trim(), version);
 
     const generations = await readdir(path.join(installHome.dataHome, 'vlp-cli'));
-    assert(!generations.some((entry) => entry.startsWith('0.1.2')));
+    assert(!generations.some((entry) => entry.startsWith('0.1.2.generation.')));
+    assert.equal((await readFile(path.join(orphanDir, 'marker.txt'), 'utf8')).trim(), 'orphan');
   } finally {
     await server.close();
   }
@@ -556,6 +616,10 @@ test('installer verifies checksums, rejects unsupported Node, cleans up interrup
     const server = await makeReleaseServer({ distDir: artifacts.distDir, interruptVersion: version });
     const installHome = await makeInstalledHome();
     try {
+      const orphanDir = path.join(installHome.dataHome, 'vlp-cli', 'orphan-generation');
+      await mkdir(orphanDir, { recursive: true });
+      await writeFile(path.join(orphanDir, 'marker.txt'), 'orphan\n');
+
       const result = await run('sh', ['install/install.sh'], {
         cwd: repoRoot,
         env: {
@@ -568,7 +632,10 @@ test('installer verifies checksums, rejects unsupported Node, cleans up interrup
       });
       assert.equal(result.code, 1);
       await assert.rejects(() => realpath(path.join(installHome.binDir, 'vlp')));
-      await assert.rejects(() => realpath(path.join(installHome.dataHome, 'vlp-cli', version)));
+      await assert.rejects(() => realpath(path.join(installHome.dataHome, 'vlp-cli', `${version}.generation`)));
+      const entries = await readdir(path.join(installHome.dataHome, 'vlp-cli'));
+      assert(!entries.some((entry) => entry.startsWith(`${version}.generation.`)));
+      assert.equal((await readFile(path.join(orphanDir, 'marker.txt'), 'utf8')).trim(), 'orphan');
     } finally {
       await server.close();
     }
