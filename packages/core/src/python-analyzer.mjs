@@ -46,7 +46,7 @@ export async function analyzePythonSources(files, options = {}) {
   const input = JSON.stringify({ files: normalizedFiles });
 
   if (Buffer.byteLength(input, 'utf8') > inputLimitBytes) {
-    throw new Error('Python analyzer input exceeded limit');
+    throw safeAnalyzerError();
   }
 
   return new Promise((resolve, reject) => {

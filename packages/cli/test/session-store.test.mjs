@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -214,4 +214,25 @@ test('loadSession rejects malformed or corrupt session files', async () => {
   await writeFile(path.join(sessionDir, `${session.sessionId}.json`), '{"broken":');
 
   await assert.rejects(() => loadSession(root, session.sessionId), /malformed|corrupt/i);
+});
+
+test('saveSession and loadSession reject traversal ids and symlinked session paths', async () => {
+  const root = await makeRoot();
+  const session = makeSession();
+  const outside = await mkdtemp(path.join(tmpdir(), 'vlp-session-outside-'));
+
+  await assert.rejects(() => loadSession(root, '../escape'), /invalid review session id/i);
+
+  await mkdir(path.join(root, '.vlp'), { recursive: true });
+  await symlink(outside, path.join(root, '.vlp', 'reviews'));
+  await assert.rejects(() => saveSession(root, session), /symbolic link/i);
+
+  await rm(path.join(root, '.vlp'), { recursive: true, force: true });
+  const sessionDir = path.join(root, '.vlp', 'reviews', '.sessions');
+  await mkdir(sessionDir, { recursive: true });
+  const realSessionPath = path.join(outside, `${session.sessionId}.json`);
+  await writeFile(realSessionPath, JSON.stringify(session));
+  await symlink(realSessionPath, path.join(sessionDir, `${session.sessionId}.json`));
+
+  await assert.rejects(() => loadSession(root, session.sessionId), /symbolic link/i);
 });

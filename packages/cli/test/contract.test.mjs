@@ -23,22 +23,41 @@ async function makeRepo() {
 
 const clock = () => new Date('2026-07-30T12:34:56.000Z');
 
-test('createContract rejects unsafe names and refuses overwrite without force', async () => {
+test('createContract rejects unsafe names and uses an atomic exclusive write unless force is set', async () => {
   const { nested } = await makeRepo();
 
   await assert.rejects(() => createContract(nested, '../escape', { clock }), /unsafe contract name/i);
 
-  const created = await createContract(nested, 'Sample Task', { clock });
+  const exclusiveWrites = [];
+  const created = await createContract(nested, 'Sample Task', {
+    clock,
+    async writeFileFn(filePath, content, options) {
+      exclusiveWrites.push({ filePath, options });
+      return writeFile(filePath, content, options);
+    },
+  });
   assert.equal(created.slug, 'sample-task');
   assert.equal(created.status, 'draft');
   assert.equal(created.path, '.vlp/contracts/sample-task.md');
   assert.match(created.content, /status: draft/);
+  assert.equal(exclusiveWrites.length, 1);
+  assert.deepEqual(exclusiveWrites[0].options, { flag: 'wx' });
 
   await assert.rejects(() => createContract(nested, 'Sample Task', { clock }), /already exists/i);
 
-  const forced = await createContract(nested, 'Sample Task', { clock, force: true });
+  const forcedWrites = [];
+  const forced = await createContract(nested, 'Sample Task', {
+    clock,
+    force: true,
+    async writeFileFn(filePath, content, options) {
+      forcedWrites.push({ filePath, options });
+      return writeFile(filePath, content, options);
+    },
+  });
   assert.equal(forced.slug, 'sample-task');
   assert.equal(forced.status, 'draft');
+  assert.equal(forcedWrites.length, 1);
+  assert.equal(forcedWrites[0].options, undefined);
 });
 
 test('createContract and confirmContract resolve the repository root from nested paths', async () => {

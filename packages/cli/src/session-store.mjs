@@ -39,9 +39,12 @@ async function prepareSessionDirectory(root) {
   return sessionDir;
 }
 
+function validatedSessionId(sessionId) {
+  return normalizeSessionId(sessionId);
+}
+
 function sessionFilePath(root, sessionId) {
-  const safeSessionId = normalizeSessionId(sessionId);
-  return path.join(root, ...SESSION_DIR, `${safeSessionId}.json`);
+  return path.join(root, ...SESSION_DIR, `${validatedSessionId(sessionId)}.json`);
 }
 
 function assertSessionRecord(record) {
@@ -105,7 +108,8 @@ export async function saveSession(root, session, options) {
 }
 
 export async function loadSession(root, id) {
-  const sessionDir = await prepareSessionDirectory(root);
+  validatedSessionId(id);
+  await prepareSessionDirectory(root);
   const canonical = await canonicalRoot(root);
   const filePath = sessionFilePath(canonical, id);
   await ensureNotSymlink(filePath);

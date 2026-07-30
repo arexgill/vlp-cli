@@ -1,22 +1,79 @@
 # VLP CLI
 
-VLP CLI is a workspace foundation for the phase 1 product.
+VLP CLI is a terminal-first review tool for contract-driven validation of agent-built changes in local Git repositories.
 
-## Status
+## Install
 
-This repository currently contains the monorepo scaffold, package metadata, CI, and workspace checks. Product behavior comes in later phases.
-
-## Phase 1 FastAPI runtime guidance
-
-Phase 1 only supports explicit FastAPI app objects in the runtime config:
-
-```json
-{
-  "runtime": {
-    "type": "fastapi",
-    "app": "src.api:app"
-  }
-}
+```bash
+curl -fsSL https://raw.githubusercontent.com/arexgill/vlp-cli/main/install/install.sh | sh
 ```
 
-Use a module-level `app` object. Application factories such as `create_app()` are not supported in Phase 1, and the runtime collector does not use `uvicorn --factory`.
+Installer properties:
+- macOS and Linux
+- no automatic `sudo`
+- verifies SHA-256 before install
+- defaults to `~/.local/bin/vlp`
+- supports `VLP_VERSION` and `VLP_INSTALL_DIR`
+- uses `node`, `node20`, or `nodejs` when the resolved runtime is Node 20+
+
+Uninstall:
+
+```bash
+sh install/uninstall.sh
+```
+
+## Terminal-first workflow
+
+```bash
+vlp --version
+vlp init
+vlp contract new sample
+# fill in the contract sections, then:
+vlp contract confirm sample
+vlp review --json > review.json || test $? -eq 3
+SESSION_ID=$(node -p "JSON.parse(require('fs').readFileSync('review.json','utf8')).sessionId")
+vlp resolve --session "$SESSION_ID" --input decisions.json --json
+```
+
+Plain `vlp review` is for interactive terminals. Agent and CI flows should use `--json` plus `vlp resolve`.
+
+## Optional web mode
+
+Browser review is explicit:
+
+```bash
+vlp review --web
+```
+
+The local web server binds only to `127.0.0.1`. No browser opens unless `--web` is selected.
+
+## Language/runtime support
+
+- JS/TS review is static.
+- General Python review uses the host `python3` interpreter only for the packaged AST helper.
+- Reviewed Python code is never imported or executed.
+- Optional FastAPI runtime enrichment is separate and Docker-bounded.
+- Generic Python does not require Docker.
+
+## Privacy and trust boundaries
+
+- reviewed source stays local
+- reports use repository-relative paths only
+- VLP never edits reviewed source
+- localhost web mode is local-only
+- Phase 1 keeps `agentReview: "off"`
+
+## Exit codes
+
+- `0`: complete / no corrections required
+- `1`: operational failure
+- `2`: corrections required
+- `3`: unresolved human decisions remain
+
+## Phase 1 limitations
+
+- terminal-first, local/manual review only
+- no Vertex calls
+- FastAPI runtime support requires explicit config and Docker
+- FastAPI runtime support covers app objects, not factories
+- standalone release bundles are currently the Node fallback path

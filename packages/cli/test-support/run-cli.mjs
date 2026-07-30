@@ -1,4 +1,4 @@
-import { run } from '../../src/run.mjs';
+import { run } from '../src/run.mjs';
 
 if (process.env.VLP_TEST_RUNNER === '1') {
   const exitCode = await run({

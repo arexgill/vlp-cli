@@ -81,6 +81,7 @@ test('workspace foundation metadata is correct', () => {
     test: 'node --test',
     check: 'npm test && npm pack --workspaces --dry-run',
   });
+  assert.equal(readFileSync(path.join(repoRoot, '.nvmrc'), 'utf8').trim(), '20');
 
   for (const [workspacePath, expectedName] of Object.entries(workspacePackagePaths)) {
     const manifest = readJson(path.join(repoRoot, workspacePath, 'package.json'));
@@ -94,6 +95,14 @@ test('workspace foundation metadata is correct', () => {
 
   const cliPackage = readJson(path.join(repoRoot, 'packages/cli/package.json'));
   assert.deepEqual(cliPackage.bin, { vlp: 'bin/vlp.mjs' });
+  assert.equal(readFileSync(path.join(repoRoot, 'packages/cli/bin/vlp.mjs'), 'utf8').startsWith('#!/usr/bin/env node\n'), true);
+  assert.deepEqual(cliPackage.files, ['bin', 'src']);
+  assert.deepEqual(cliPackage.exports, {
+    '.': './src/index.mjs',
+    './session-store': './src/session-store.mjs',
+    './web-server': './src/web-server.mjs',
+    './package.json': './package.json',
+  });
 });
 
 test('workspace packages do not contain undeclared internal imports', () => {
@@ -153,6 +162,30 @@ test('workspace packages do not contain undeclared internal imports', () => {
   }
 });
 
+test('workspace fixtures do not contain runnable Node helper files that the test runner can auto-discover', () => {
+  const fixtureFiles = walkFiles(path.join(repoRoot, 'packages')).filter((filePath) => {
+    const relative = path.relative(repoRoot, filePath).split(path.sep).join('/');
+    return relative.includes('/test/fixtures/') && ['.js', '.mjs', '.cjs'].includes(path.extname(filePath));
+  });
+
+  assert.deepEqual(fixtureFiles, []);
+});
+
+test('CI workflows pin the workspace floor and cover the release smoke matrix', () => {
+  const testWorkflow = readFileSync(path.join(repoRoot, '.github/workflows/test.yml'), 'utf8');
+  assert.match(testWorkflow, /node-version:\s*\[20, 22\]/);
+  assert.match(testWorkflow, /macos-latest/);
+  assert.match(testWorkflow, /ubuntu-latest/);
+
+  const releaseWorkflow = readFileSync(path.join(repoRoot, '.github/workflows/release.yml'), 'utf8');
+  assert.match(releaseWorkflow, /ubuntu-latest/);
+  assert.match(releaseWorkflow, /ubuntu-24\.04-arm/);
+  assert.match(releaseWorkflow, /macos-13/);
+  assert.match(releaseWorkflow, /macos-latest/);
+  assert.match(releaseWorkflow, /build-node-bundle/);
+  assert.match(releaseWorkflow, /generate-checksums/);
+});
+
 for (const workspacePath of Object.keys(workspacePackagePaths)) {
   test(`workspace manifest exists: ${workspacePath}`, () => {
     const manifestPath = path.join(repoRoot, workspacePath, 'package.json');
@@ -176,6 +209,16 @@ test('packed workspace installs the UI asset-root API and lets the CLI web serve
     '@arexgill/vlp-core': '0.1.0',
     '@arexgill/vlp-ui': '0.1.0',
   });
+  assert.deepEqual(cliManifest.files, ['bin', 'src']);
+  assert.deepEqual(cliManifest.exports, {
+    '.': './src/index.mjs',
+    './session-store': './src/session-store.mjs',
+    './web-server': './src/web-server.mjs',
+    './package.json': './package.json',
+  });
+
+  const coreEntries = await listTarEntries(coreTarball);
+  assert(coreEntries.includes('package/scripts/extract-python.py'), 'Missing packaged Python helper');
 
   const uiManifest = await readTarJson(uiTarball, 'package/package.json');
   assert.equal(uiManifest.main, './src/index.mjs');
@@ -210,14 +253,18 @@ import path from 'node:path';
 
 import { createReviewSession } from '@arexgill/vlp-core';
 import { resolveUiAssetRoot } from '@arexgill/vlp-ui';
-import { saveSession } from '@arexgill/vlp-cli/src/session-store.mjs';
-import { startWebReviewServer } from '@arexgill/vlp-cli/src/web-server.mjs';
+import { saveSession } from '@arexgill/vlp-cli/session-store';
+import { startWebReviewServer } from '@arexgill/vlp-cli/web-server';
 
 const assetRoot = resolveUiAssetRoot();
 await access(path.join(assetRoot, 'index.html'));
 await access(path.join(assetRoot, 'styles.css'));
 await access(path.join(assetRoot, 'app.mjs'));
 await access(path.join(assetRoot, 'web-app.mjs'));
+
+await assert.rejects(import('@arexgill/vlp-cli/src/run.mjs'), /ERR_PACKAGE_PATH_NOT_EXPORTED|Cannot find module|Package subpath/);
+await assert.rejects(import('@arexgill/vlp-core/src/index.mjs'), /ERR_PACKAGE_PATH_NOT_EXPORTED|Cannot find module|Package subpath/);
+await assert.rejects(import('@arexgill/vlp-ui/public/app.mjs'), /ERR_PACKAGE_PATH_NOT_EXPORTED|Cannot find module|Package subpath/);
 
 const root = await mkdtemp(path.join(tmpdir(), 'vlp-installed-web-'));
 await mkdir(path.join(root, '.git'));

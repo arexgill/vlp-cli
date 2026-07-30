@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
@@ -34,7 +34,7 @@ function createResult(record) {
   });
 }
 
-export async function createContract(root, name, { force = false, clock = () => new Date() } = {}) {
+export async function createContract(root, name, { force = false, clock = () => new Date(), writeFileFn = writeFile } = {}) {
   const rootPath = await resolveProjectRoot(root);
   const slug = normalizeContractSlug(name);
   await loadConfig(rootPath);
@@ -43,21 +43,18 @@ export async function createContract(root, name, { force = false, clock = () => 
 
   await mkdir(path.dirname(filePath), { recursive: true });
 
-  if (!force) {
-    try {
-      await readFile(filePath, 'utf8');
-      throw new Error(`Contract already exists: ${relativePath}`);
-    } catch (error) {
-      if (error?.code !== 'ENOENT') {
-        throw error;
-      }
-    }
-  }
-
   const clockValue = clock();
   const created = clockValue instanceof Date ? clockValue.toISOString() : new Date(clockValue).toISOString();
   const content = buildContractDocument({ slug, created });
-  await writeFile(filePath, content);
+
+  try {
+    await writeFileFn(filePath, content, force ? undefined : { flag: 'wx' });
+  } catch (error) {
+    if (!force && error?.code === 'EEXIST') {
+      throw new Error(`Contract already exists: ${relativePath}`);
+    }
+    throw error;
+  }
 
   return createResult({
     slug,

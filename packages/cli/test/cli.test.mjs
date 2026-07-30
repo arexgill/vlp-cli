@@ -14,7 +14,7 @@ import { initializeProject } from '../src/project.mjs';
 import { run } from '../src/run.mjs';
 
 const exec = promisify(execFile);
-const helperPath = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'run-cli.mjs');
+const helperPath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'test-support', 'run-cli.mjs');
 const fixedClock = '2026-07-30T12:34:56.000Z';
 const fixedUuid = '123e4567-e89b-12d3-a456-426614174000';
 
