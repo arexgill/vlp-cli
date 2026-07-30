@@ -6,6 +6,9 @@ on:
       - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -75,6 +78,15 @@ jobs:
         run: |
           python3 -m http.server 8123 --bind 127.0.0.1 --directory dist >/tmp/vlp-http.log 2>&1 &
           echo $! > /tmp/vlp-http.pid
+          for attempt in $(seq 1 50); do
+            if curl -fsS http://127.0.0.1:8123/ >/dev/null; then
+              exit 0
+            fi
+            sleep 0.2
+          done
+          echo 'Release fixture did not become ready in time.' >&2
+          cat /tmp/vlp-http.log >&2 || true
+          exit 1
 
       - name: Install bundle into a temporary home
         shell: bash
@@ -190,3 +202,39 @@ NODE
           if [ -f /tmp/vlp-http.pid ]; then
             kill "$(cat /tmp/vlp-http.pid)" || true
           fi
+
+  publish:
+    needs: [build, smoke]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: dist/
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: echo "version=$(node -p \"JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version\")" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          files: dist/v${{ steps.version.outputs.version }}/*
+          fail_on_unmatched_files: true

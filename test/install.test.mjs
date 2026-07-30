@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
-import { cp, mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { access, cp, mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { buildContractDocument } from '@arexgill/vlp-core';
 import { initializeProject } from '@arexgill/vlp-cli';
@@ -346,6 +346,7 @@ test('build-node-bundle produces a deterministic fallback tarball with the packa
   assert(entries.includes(`vlp-cli-node-v${version}/package-lock.json`));
   assert(entries.includes(`vlp-cli-node-v${version}/bin/vlp`));
   assert(entries.includes(`vlp-cli-node-v${version}/node_modules/@arexgill/vlp-cli/bin/vlp.mjs`));
+  assert(entries.includes(`vlp-cli-node-v${version}/node_modules/@arexgill/vlp-cli/scripts/collect-openapi.py`));
   assert(entries.includes(`vlp-cli-node-v${version}/node_modules/@arexgill/vlp-core/scripts/extract-python.py`));
   assert(entries.includes(`vlp-cli-node-v${version}/node_modules/@arexgill/vlp-ui/public/index.html`));
   assert(entries.includes(`vlp-cli-node-v${version}/node_modules/@arexgill/vlp-ui/public/styles.css`));
@@ -353,6 +354,85 @@ test('build-node-bundle produces a deterministic fallback tarball with the packa
 
   const checksum = await readFile(checksumPath, 'utf8');
   assert.match(checksum, /^[0-9a-f]{64}  vlp-cli-node-v0\.1\.0\.tar\.gz\n$/);
+});
+
+test('installed fallback layout exposes collect-openapi.py and resolves FastAPI OpenAPI through the packaged helper', async () => {
+  const { tarballPath } = await buildReleaseArtifacts();
+  const extractRoot = await mkdtemp(path.join(tmpdir(), 'vlp-install-layout-'));
+
+  try {
+    await exec('tar', ['-xzf', tarballPath, '-C', extractRoot], { maxBuffer: commandBuffer });
+
+    const bundleRoot = path.join(extractRoot, `vlp-cli-node-v${version}`);
+    const cliPackageRoot = path.join(bundleRoot, 'node_modules', '@arexgill', 'vlp-cli');
+    const scriptPath = path.join(cliPackageRoot, 'scripts', 'collect-openapi.py');
+    await access(scriptPath);
+    const resolvedScriptPath = await realpath(scriptPath);
+
+    const { collectFastApiOpenApi } = await import(pathToFileURL(path.join(cliPackageRoot, 'src', 'fastapi-runtime.mjs')).href);
+    const appRoot = path.join(extractRoot, 'app');
+    await mkdir(appRoot, { recursive: true });
+    await writeFile(path.join(appRoot, 'requirements.txt'), 'fastapi\nuvicorn\n');
+
+    const dockerCalls = [];
+    const result = await collectFastApiOpenApi({
+      root: appRoot,
+      appTarget: 'service.api:app',
+      runDocker: async (args, options = {}) => {
+        dockerCalls.push({ args, options });
+
+        if (args[0] === 'build') {
+          return { stdout: 'image-123\n', stderr: '', exitCode: 0 };
+        }
+        if (args[0] === 'run') {
+          return {
+            stdout: JSON.stringify({
+              paths: {
+                '/health': {
+                  get: {
+                    responses: {
+                      '200': {
+                        content: {
+                          'application/json': {
+                            schema: { $ref: '#/components/schemas/Health' },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            }),
+            stderr: '',
+            exitCode: 0,
+          };
+        }
+        if (args[0] === 'rmi') {
+          return { stdout: '', stderr: '', exitCode: 0 };
+        }
+        throw new Error(`Unexpected docker call: ${args.join(' ')}`);
+      },
+    });
+
+    assert.equal(result.diagnostic, null);
+    assert.deepEqual(result.openapi, {
+      paths: {
+        '/health': {
+          get: {
+            responses: {
+              '200': {
+                schemaRef: '#/components/schemas/Health',
+              },
+            },
+          },
+        },
+      },
+    });
+    assert.equal(dockerCalls[1].args.includes(`${resolvedScriptPath}:/scripts/collect-openapi.py:ro`), true);
+    assert.equal(dockerCalls[1].args.slice(-3).join(' '), 'python /scripts/collect-openapi.py service.api:app');
+  } finally {
+    await rm(extractRoot, { recursive: true, force: true });
+  }
 });
 
 test('installer atomically replaces a preexisting bin symlink without mv -h even when it points at a directory', async () => {

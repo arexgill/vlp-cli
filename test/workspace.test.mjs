@@ -96,7 +96,7 @@ test('workspace foundation metadata is correct', () => {
   const cliPackage = readJson(path.join(repoRoot, 'packages/cli/package.json'));
   assert.deepEqual(cliPackage.bin, { vlp: 'bin/vlp.mjs' });
   assert.equal(readFileSync(path.join(repoRoot, 'packages/cli/bin/vlp.mjs'), 'utf8').startsWith('#!/usr/bin/env node\n'), true);
-  assert.deepEqual(cliPackage.files, ['bin', 'src']);
+  assert.deepEqual(cliPackage.files, ['bin', 'scripts', 'src']);
   assert.deepEqual(cliPackage.exports, {
     '.': './src/index.mjs',
     './session-store': './src/session-store.mjs',
@@ -184,6 +184,14 @@ test('CI workflows pin the workspace floor and cover the release smoke matrix', 
   assert.match(releaseWorkflow, /macos-latest/);
   assert.match(releaseWorkflow, /build-node-bundle/);
   assert.match(releaseWorkflow, /generate-checksums/);
+  assert.match(releaseWorkflow, /permissions:\s*\n\s*contents:\s*write/);
+  assert.match(releaseWorkflow, /needs:\s*\[build, smoke\]/);
+  assert.match(releaseWorkflow, /if:\s*github\.event_name == 'push' && startsWith\(github\.ref, 'refs\/tags\/v'\)/);
+  assert.match(releaseWorkflow, /softprops\/action-gh-release@v2/);
+  assert.match(releaseWorkflow, /tag_name:\s*v\$\{\{ steps\.version\.outputs\.version \}\}/);
+  assert.match(releaseWorkflow, /files:\s*dist\/v\$\{\{ steps\.version\.outputs\.version \}\}\/\*/);
+  assert.doesNotMatch(releaseWorkflow, /secrets\./);
+  assert.doesNotMatch(releaseWorkflow, /pull_request:/);
 });
 
 for (const workspacePath of Object.keys(workspacePackagePaths)) {
@@ -209,7 +217,7 @@ test('packed workspace installs the UI asset-root API and lets the CLI web serve
     '@arexgill/vlp-core': '0.1.0',
     '@arexgill/vlp-ui': '0.1.0',
   });
-  assert.deepEqual(cliManifest.files, ['bin', 'src']);
+  assert.deepEqual(cliManifest.files, ['bin', 'scripts', 'src']);
   assert.deepEqual(cliManifest.exports, {
     '.': './src/index.mjs',
     './session-store': './src/session-store.mjs',
