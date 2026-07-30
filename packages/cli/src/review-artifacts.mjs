@@ -1,10 +1,10 @@
-import { randomUUID } from 'node:crypto';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { applyDecisions, buildReport } from '@arexgill/vlp-core';
 
 import { createJsonEnvelope, reviewContractPayload, reviewQuestionPayloads } from './json-output.mjs';
+import { stageAtomicFile } from './staged-file.mjs';
 import { stageSessionSave } from './session-store.mjs';
 
 export function reviewExitCode(session) {
@@ -30,15 +30,40 @@ function unresolvedEnvelope(command, session) {
   });
 }
 
-async function cleanupStages(stages) {
-  await Promise.all(stages.map(async (stage) => {
-    if (!stage?.cleanup) return;
+async function cleanupStages(stages, { suppress = false } = {}) {
+  let firstError = null;
+
+  for (const stage of stages) {
+    if (!stage?.cleanup) continue;
     try {
       await stage.cleanup();
-    } catch {
-      // Best effort cleanup only.
+    } catch (error) {
+      firstError ??= error;
+      if (!suppress) {
+        throw error;
+      }
     }
-  }));
+  }
+
+  return firstError;
+}
+
+async function rollbackStages(stages, { suppress = false } = {}) {
+  let firstError = null;
+
+  for (const stage of [...stages].reverse()) {
+    if (!stage?.rollback) continue;
+    try {
+      await stage.rollback();
+    } catch (error) {
+      firstError ??= error;
+      if (!suppress) {
+        throw error;
+      }
+    }
+  }
+
+  return firstError;
 }
 
 async function stageArtifactFile(directory, fileName, contents, {
@@ -46,22 +71,13 @@ async function stageArtifactFile(directory, fileName, contents, {
   renameFn = rename,
   rmFn = rm,
 } = {}) {
-  const tempPath = path.join(directory, `.${fileName}.${randomUUID()}.tmp`);
   const finalPath = path.join(directory, fileName);
-
-  await writeFileFn(tempPath, contents, { mode: 0o600 });
-
-  return {
-    tempPath,
-    finalPath,
-    async commit() {
-      await renameFn(tempPath, finalPath);
-      return finalPath;
-    },
-    async cleanup() {
-      await rmFn(tempPath, { force: true });
-    },
-  };
+  return stageAtomicFile(finalPath, contents, {
+    writeFileFn,
+    renameFn,
+    rmFn,
+    result: finalPath,
+  });
 }
 
 export function createUnresolvedDecisionResult(command, session) {
@@ -109,6 +125,7 @@ export async function writeFinalArtifacts(root, command, resolvedSession, option
   const auditPayload = `${JSON.stringify(envelope, null, 2)}\n`;
 
   const stages = [];
+  const committedStages = [];
 
   try {
     const reportStage = await stageArtifactFile(reviewDirectory, `${resolvedSession.sessionId}.md`, markdown, {
@@ -133,10 +150,16 @@ export async function writeFinalArtifacts(root, command, resolvedSession, option
     stages.push(sessionStage);
 
     await reportStage.commit();
+    committedStages.push(reportStage);
+
     await auditStage.commit();
+    committedStages.push(auditStage);
+
     await sessionStage.commit();
+    committedStages.push(sessionStage);
   } catch (error) {
-    await cleanupStages(stages);
+    await rollbackStages(committedStages, { suppress: true });
+    await cleanupStages(stages, { suppress: true });
     throw error;
   }
 

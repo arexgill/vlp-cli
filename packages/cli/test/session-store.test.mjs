@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 import { createReviewSession } from '@arexgill/vlp-core';
-import { loadSession, saveSession } from '../src/session-store.mjs';
+import { loadSession, saveSession, stageSessionSave } from '../src/session-store.mjs';
 
 const uuid = '123e4567-e89b-12d3-a456-426614174000';
 
@@ -57,6 +57,24 @@ test('saveSession writes a private atomic session file and loadSession preserves
 
   const sessionJson = await readFile(path.join(root, '.vlp', 'reviews', '.sessions', `${session.sessionId}.json`), 'utf8');
   assert.match(sessionJson, /session-v1-/);
+});
+
+test('stageSessionSave removes a partial temp file when the initial write throws', async () => {
+  const root = await makeRoot();
+  const session = makeSession();
+  const sessionDir = path.join(root, '.vlp', 'reviews', '.sessions');
+
+  await assert.rejects(
+    () => stageSessionSave(root, session, {
+      async writeFileFn(filePath, _contents, options) {
+        await writeFile(filePath, 'partial write', options);
+        throw new Error('Injected session stage write failure');
+      },
+    }),
+    /Injected session stage write failure/,
+  );
+
+  assert.deepEqual(await readdir(sessionDir), []);
 });
 
 test('loadSession rejects malformed or corrupt session files', async () => {

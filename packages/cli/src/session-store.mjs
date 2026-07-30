@@ -1,8 +1,9 @@
 import { lstat, mkdir, readFile, rename, realpath, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
 
 import { normalizeReviewSession, normalizeSessionId } from '@arexgill/vlp-core';
+
+import { stageAtomicFile } from './staged-file.mjs';
 
 const SESSION_DIR = ['.vlp', 'reviews', '.sessions'];
 
@@ -55,29 +56,27 @@ export async function stageSessionSave(root, session, {
   renameFn = rename,
   rmFn = rm,
 } = {}) {
-  const sessionDir = await prepareSessionDirectory(root);
+  await prepareSessionDirectory(root);
   const canonical = await canonicalRoot(root);
   const normalized = assertSessionRecord(session);
   const filePath = sessionFilePath(canonical, normalized.sessionId);
-  const tempPath = path.join(sessionDir, `.${normalized.sessionId}.${randomUUID()}.tmp`);
   const payload = `${JSON.stringify(normalized, null, 2)}\n`;
-  let committed = false;
 
-  await writeFileFn(tempPath, payload, { mode: 0o600 });
+  const staged = await stageAtomicFile(filePath, payload, {
+    writeFileFn,
+    renameFn,
+    rmFn,
+    result: () => normalized,
+  });
 
   return {
     normalized,
-    tempPath,
+    tempPath: staged.tempPath,
     filePath,
-    async commit() {
-      await renameFn(tempPath, filePath);
-      committed = true;
-      return normalized;
-    },
-    async cleanup() {
-      if (committed) return;
-      await rmFn(tempPath, { force: true });
-    },
+    backupPath: staged.backupPath,
+    commit: staged.commit,
+    rollback: staged.rollback,
+    cleanup: staged.cleanup,
   };
 }
 
