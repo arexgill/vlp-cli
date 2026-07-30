@@ -1,6 +1,4 @@
-import { CORE_LIMITS } from './limits.mjs';
-
-const DECISIONS = new Set(['accept', 'correct', 'irrelevant']);
+import { validateSubmittedDecisions } from './decisions.mjs';
 
 function clean(value) {
   return String(value ?? '').replaceAll('\0', '').replace(/\r\n?/g, '\n').trim();
@@ -16,36 +14,6 @@ function contractText(contract) {
   }
 
   return '';
-}
-
-function questionMap(session) {
-  return new Map((session.questions || []).map((question) => [question.id, question]));
-}
-
-function validateDecisions(session, decisions) {
-  if (!Array.isArray(decisions)) throw new Error('Decisions must be an array');
-
-  const questions = questionMap(session);
-  const seen = new Set();
-
-  return decisions.map((decision) => {
-    const questionId = clean(decision?.questionId);
-    const value = clean(decision?.decision);
-    const answer = clean(decision?.answer);
-
-    if (!questions.has(questionId)) throw new Error(`Unknown question: ${questionId}`);
-    if (!DECISIONS.has(value)) throw new Error(`Invalid decision: ${value}`);
-    if (seen.has(questionId)) throw new Error(`Duplicate response: ${questionId}`);
-    if (value === 'correct' && !answer) throw new Error(`Correction text is required for ${questionId}`);
-    if (answer.length > CORE_LIMITS.maxResponseCharacters) {
-      throw new Error(
-        `Answer for ${questionId} exceeds ${CORE_LIMITS.maxResponseCharacters} characters`,
-      );
-    }
-
-    seen.add(questionId);
-    return { questionId, decision: value, answer };
-  });
 }
 
 function evidenceFor(session, question) {
@@ -78,7 +46,7 @@ function renderSection(title, items) {
 }
 
 export function buildReport({ contract, session, decisions = [] } = {}) {
-  const validatedDecisions = validateDecisions(session, decisions);
+  const validatedDecisions = validateSubmittedDecisions(session, decisions);
   const decisionById = new Map(validatedDecisions.map((decision) => [decision.questionId, decision]));
   const questions = session.questions || [];
   const accepted = [];
