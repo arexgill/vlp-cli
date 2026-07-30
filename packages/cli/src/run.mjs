@@ -121,7 +121,7 @@ async function statusLines(cwd) {
     `Active contract: ${activeContract}`,
     `Changed supported files: ${changedFiles.length}`,
     `Latest review: ${latestReview ? `${latestReview.status} (${latestReview.sessionId})` : 'none'}`,
-    `Next: ${nextStatusCommand(contracts)}`,
+    `Next: ${nextStatusCommand(contracts, latestReview)}`,
   ];
 }
 

@@ -825,6 +825,9 @@ test('release docs/workflow cover the phase-1 installer, privacy, limitations, a
   const workflow = await readFile(path.join(repoRoot, '.github', 'workflows', 'release.yml'), 'utf8');
   const installer = await readFile(path.join(repoRoot, 'install', 'install.sh'), 'utf8');
 
+  assert.match(readme, new RegExp(`VLP_VERSION=${version}`));
+  assert.match(readme, new RegExp(`https://github\\.com/arexgill/vlp-cli/releases/download/v\\$\\{VLP_VERSION\\}/install\\.sh`));
+  assert.doesNotMatch(readme, /raw\.githubusercontent\.com\/arexgill\/vlp-cli\/main\/install\/install\.sh/);
   assert.match(readme, /terminal-first/i);
   assert.match(readme, /--web/);
   assert.match(readme, /python3/i);

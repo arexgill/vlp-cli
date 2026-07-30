@@ -5,7 +5,8 @@ VLP CLI is a terminal-first review tool for contract-driven validation of agent-
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/arexgill/vlp-cli/main/install/install.sh | sh
+VLP_VERSION=0.1.0
+curl -fsSL "https://github.com/arexgill/vlp-cli/releases/download/v${VLP_VERSION}/install.sh" | VLP_VERSION="$VLP_VERSION" sh
 ```
 
 Installer properties:

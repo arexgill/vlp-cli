@@ -1,13 +1,33 @@
 import { lstat, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 
-import { normalizeSessionId } from '@arexgill/vlp-core';
+import { normalizeReviewSession, normalizeSessionId, validateSubmittedDecisions } from '@arexgill/vlp-core';
 
 function reviewDirectory(root) {
   return path.join(root, '.vlp', 'reviews');
 }
 
-export function nextStatusCommand(contracts = []) {
+function reviewSessionDirectory(root) {
+  return path.join(reviewDirectory(root), '.sessions');
+}
+
+function reviewSessionFilePath(root, sessionId) {
+  return path.join(reviewSessionDirectory(root), `${sessionId}.json`);
+}
+
+function safeMtimeMs(stats) {
+  return Number.isFinite(stats?.mtimeMs) ? stats.mtimeMs : 0;
+}
+
+function clean(value) {
+  return String(value ?? '').replaceAll('\0', '').replace(/\r\n?/g, '\n').trim();
+}
+
+export function nextStatusCommand(contracts = [], latestReview = null) {
+  if (latestReview?.status === 'unresolved' && latestReview?.sessionId) {
+    return `vlp resolve --session ${latestReview.sessionId} --input <file> --json`;
+  }
+
   const confirmed = (contracts || []).filter((record) => record?.status === 'confirmed');
   const drafts = (contracts || []).filter((record) => record?.status === 'draft');
 
@@ -30,8 +50,21 @@ export function nextStatusCommand(contracts = []) {
   return 'vlp review --contract <slug>';
 }
 
-async function reviewAuditCandidates(root) {
-  const directory = reviewDirectory(root);
+async function reviewCandidates(directory, kind) {
+  let directoryStats;
+  try {
+    directoryStats = await lstat(directory);
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      return [];
+    }
+    throw error;
+  }
+
+  if (!directoryStats.isDirectory() || directoryStats.isSymbolicLink()) {
+    return [];
+  }
+
   const entries = await readdir(directory, { withFileTypes: true }).catch((error) => {
     if (error?.code === 'ENOENT') {
       return [];
@@ -61,16 +94,23 @@ async function reviewAuditCandidates(root) {
     }
 
     candidates.push({
+      kind,
       name: entry.name,
       filePath,
-      mtimeMs: Number.isFinite(stats.mtimeMs) ? stats.mtimeMs : 0,
+      mtimeMs: safeMtimeMs(stats),
     });
   }
 
-  return candidates.sort((left, right) => right.mtimeMs - left.mtimeMs || left.name.localeCompare(right.name));
+  return candidates;
 }
 
-async function parseAuditSummary(filePath) {
+function compareCandidates(left, right) {
+  return right.mtimeMs - left.mtimeMs
+    || left.name.localeCompare(right.name)
+    || (left.kind === 'session' ? -1 : 1);
+}
+
+async function parseJsonObject(filePath) {
   let content;
   try {
     content = await readFile(filePath, 'utf8');
@@ -89,23 +129,86 @@ async function parseAuditSummary(filePath) {
     return null;
   }
 
-  if (typeof payload.status !== 'string' || !payload.status) {
+  return payload;
+}
+
+function questionCount(session) {
+  const seen = new Set();
+  const questions = Array.isArray(session?.questions) ? session.questions : [];
+
+  for (const question of questions) {
+    const questionId = clean(question?.id);
+    if (!questionId || seen.has(questionId)) {
+      throw new Error('Malformed session file');
+    }
+    seen.add(questionId);
+  }
+
+  return questions.length;
+}
+
+function deriveSessionStatus(session) {
+  const totalQuestions = questionCount(session);
+  const decisions = validateSubmittedDecisions(session, session.decisions ?? []);
+
+  if (decisions.length !== totalQuestions) {
+    return 'unresolved';
+  }
+
+  return decisions.some((decision) => decision.decision === 'correct') ? 'corrections-required' : 'completed';
+}
+
+async function parseSessionSummary(filePath) {
+  const payload = await parseJsonObject(filePath);
+  if (!payload) {
     return null;
   }
 
   try {
+    const session = normalizeReviewSession(payload);
     return {
-      status: payload.status,
-      sessionId: normalizeSessionId(payload.sessionId),
+      status: deriveSessionStatus(session),
+      sessionId: session.sessionId,
     };
   } catch {
     return null;
   }
 }
 
+async function parseAuditReference(filePath) {
+  const payload = await parseJsonObject(filePath);
+  if (!payload) {
+    return null;
+  }
+
+  try {
+    return normalizeSessionId(payload.sessionId);
+  } catch {
+    return null;
+  }
+}
+
 export async function latestReviewSummary(root) {
-  for (const candidate of await reviewAuditCandidates(root)) {
-    const summary = await parseAuditSummary(candidate.filePath);
+  const candidates = [
+    ...(await reviewCandidates(reviewSessionDirectory(root), 'session')),
+    ...(await reviewCandidates(reviewDirectory(root), 'audit')),
+  ].sort(compareCandidates);
+
+  for (const candidate of candidates) {
+    if (candidate.kind === 'session') {
+      const summary = await parseSessionSummary(candidate.filePath);
+      if (summary) {
+        return summary;
+      }
+      continue;
+    }
+
+    const sessionId = await parseAuditReference(candidate.filePath);
+    if (!sessionId) {
+      continue;
+    }
+
+    const summary = await parseSessionSummary(reviewSessionFilePath(root, sessionId));
     if (summary) {
       return summary;
     }

@@ -74,6 +74,46 @@ async function writeContract(root, slug, status) {
   );
 }
 
+async function writeSession(root, { sessionId, decisions = [], mtime }) {
+  const sessionDir = path.join(root, '.vlp', 'reviews', '.sessions');
+  await mkdir(sessionDir, { recursive: true });
+  const filePath = path.join(sessionDir, `${sessionId}.json`);
+  const payload = {
+    version: 1,
+    sessionId,
+    contract: {
+      id: 'search-scope',
+      slug: 'search-scope',
+      status: 'confirmed',
+      path: '.vlp/contracts/search-scope.md',
+      content: '# Search Scope',
+    },
+    sources: [],
+    docUnits: [],
+    diagnostics: [],
+    questions: [
+      {
+        id: 'q-search-1',
+        type: 'missing-coverage',
+        severity: 'high',
+        title: 'Search misses fields beyond name',
+        ask: 'Should search include description, category, and tags?',
+        reason: 'Acceptance criteria require all searchable fields.',
+        promptEvidence: 'Search relevance must consider product name, description, category, and tags.',
+        docUnitIds: [],
+      },
+    ],
+    decisions,
+    meta: {
+      sourceCount: 1,
+      docUnitCount: 0,
+      questionCount: 1,
+    },
+  };
+  await writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`);
+  await utimes(filePath, mtime, mtime);
+}
+
 async function writeAudit(root, { sessionId, status, mtime, command = 'resolve' }) {
   const reviewDir = path.join(root, '.vlp', 'reviews');
   await mkdir(reviewDir, { recursive: true });
@@ -126,12 +166,12 @@ async function runStatus(root) {
   return { code, stdout: stdout.text(), stderr: stderr.text() };
 }
 
-test('status reports the latest completed review and recommends review for a confirmed contract', async () => {
+test('status reports the latest completed review from a validated session and recommends review for a confirmed contract', async () => {
   const root = await makeStatusRepo();
   await writeContract(root, 'search-scope', 'confirmed');
-  await writeAudit(root, {
+  await writeSession(root, {
     sessionId: 'session-v1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-    status: 'completed',
+    decisions: [{ questionId: 'q-search-1', decision: 'accept', answer: '' }],
     mtime: new Date('2026-07-30T12:35:00.000Z'),
   });
 
@@ -149,14 +189,14 @@ test('status reports the newest corrections-required review, breaks ties by name
   await writeContract(root, 'alpha-task', 'confirmed');
   await writeContract(root, 'beta-task', 'confirmed');
   const tieTime = new Date('2026-07-30T12:35:00.000Z');
-  await writeAudit(root, {
+  await writeSession(root, {
     sessionId: 'session-v1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-    status: 'corrections-required',
+    decisions: [{ questionId: 'q-search-1', decision: 'correct', answer: 'Search description, category, and tags too.' }],
     mtime: tieTime,
   });
-  await writeAudit(root, {
+  await writeSession(root, {
     sessionId: 'session-v1-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-    status: 'completed',
+    decisions: [{ questionId: 'q-search-1', decision: 'accept', answer: '' }],
     mtime: tieTime,
   });
 
@@ -169,12 +209,12 @@ test('status reports the newest corrections-required review, breaks ties by name
   assert.equal(result.stdout.includes(root), false);
 });
 
-test('status reports the latest unresolved review and confirms a single draft before review', async () => {
+test('status prioritizes resolving the latest unresolved review session before suggesting other commands', async () => {
   const root = await makeStatusRepo();
-  await writeContract(root, 'draft-task', 'draft');
-  await writeAudit(root, {
+  await writeContract(root, 'search-scope', 'confirmed');
+  await writeSession(root, {
     sessionId: 'session-v1-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-    status: 'unresolved',
+    decisions: [],
     mtime: new Date('2026-07-30T12:35:00.000Z'),
   });
 
@@ -182,15 +222,45 @@ test('status reports the latest unresolved review and confirms a single draft be
 
   assert.equal(result.code, 0);
   assert.match(result.stdout, /Latest review: unresolved \(session-v1-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\)/);
-  assert.match(result.stdout, /Next: vlp contract confirm draft-task/);
-  assert.match(result.stdout, /Active contract: none/);
+  assert.match(result.stdout, /Next: vlp resolve --session session-v1-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --input <file> --json/);
+  assert.match(result.stdout, /Active contract: search-scope/);
   assert.equal(result.stdout.includes(root), false);
 });
 
-test('status falls back to contract new when no contracts exist and skips malformed or symlinked audits safely', async () => {
+test('status derives state from the validated session on audit/session ties and ignores fake unresolved audits', async () => {
+  const root = await makeStatusRepo();
+  await writeContract(root, 'search-scope', 'confirmed');
+  const tieTime = new Date('2026-07-30T12:36:00.000Z');
+  await writeSession(root, {
+    sessionId: 'session-v1-cccccccccccccccccccccccccccccccc',
+    decisions: [{ questionId: 'q-search-1', decision: 'accept', answer: '' }],
+    mtime: tieTime,
+  });
+  await writeAudit(root, {
+    sessionId: 'session-v1-cccccccccccccccccccccccccccccccc',
+    status: 'unresolved',
+    mtime: tieTime,
+  });
+
+  const result = await runStatus(root);
+
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /Latest review: completed \(session-v1-cccccccccccccccccccccccccccccccc\)/);
+  assert.match(result.stdout, /Next: vlp review$/m);
+  assert.equal(result.stdout.includes(root), false);
+});
+
+test('status falls back to contract new when no contracts exist and skips malformed or symlinked session/audit files safely', async () => {
   const root = await makeStatusRepo();
   await writeMalformedAudit(root, 'broken.json', new Date('2026-07-30T12:36:00.000Z'));
   await writeSymlinkAudit(root, 'linked.json');
+  const sessionDir = path.join(root, '.vlp', 'reviews', '.sessions');
+  await mkdir(sessionDir, { recursive: true });
+  await writeFile(path.join(sessionDir, 'broken.json'), '{not-json');
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'vlp-status-session-target-'));
+  const targetPath = path.join(targetDir, 'linked.json');
+  await writeFile(targetPath, '{}\n');
+  await symlink(targetPath, path.join(sessionDir, 'linked.json'));
 
   const result = await runStatus(root);
 
@@ -199,5 +269,6 @@ test('status falls back to contract new when no contracts exist and skips malfor
   assert.match(result.stdout, /Next: vlp contract new/);
   assert.match(result.stdout, /Active contract: none/);
   assert.equal(result.stdout.includes(root), false);
-  assert.deepEqual((await readdir(path.join(root, '.vlp', 'reviews'))).sort(), ['broken.json', 'linked.json']);
+  assert.deepEqual((await readdir(path.join(root, '.vlp', 'reviews'))).sort(), ['.sessions', 'broken.json', 'linked.json']);
+  assert.deepEqual((await readdir(sessionDir)).sort(), ['broken.json', 'linked.json']);
 });

@@ -418,6 +418,37 @@ test('resolve accepts stdin input and returns exit code 0 when all decisions are
   assert.equal(json.reportPath, `.vlp/reviews/${envelope.sessionId}.md`);
 });
 
+
+test('real review and resolve flows are reflected in status from persisted session state without absolute paths', async () => {
+  const root = await makeCliRepo();
+  const review = await runCli(['review', '--json'], { cwd: root });
+  assert.equal(review.code, 3);
+  const unresolved = JSON.parse(review.stdout);
+
+  const statusAfterReview = await runCli(['status'], { cwd: root });
+  assert.equal(statusAfterReview.code, 0);
+  assert.match(statusAfterReview.stdout, new RegExp(`Latest review: unresolved \\(${unresolved.sessionId}\\)`));
+  assert.match(statusAfterReview.stdout, new RegExp(`Next: vlp resolve --session ${unresolved.sessionId} --input <file> --json`));
+  assert.equal(statusAfterReview.stdout.includes(root), false);
+
+  const decisions = unresolved.questions.map((question) => ({
+    questionId: question.id,
+    decision: 'accept',
+    answer: '',
+  }));
+  const resolve = await runCli(['resolve', '--session', unresolved.sessionId, '--input', '-', '--json'], {
+    cwd: root,
+    input: `${JSON.stringify({ sessionId: unresolved.sessionId, decisions })}\n`,
+  });
+  assert.equal(resolve.code, 0);
+
+  const statusAfterResolve = await runCli(['status'], { cwd: root });
+  assert.equal(statusAfterResolve.code, 0);
+  assert.match(statusAfterResolve.stdout, new RegExp(`Latest review: completed \\(${unresolved.sessionId}\\)`));
+  assert.match(statusAfterResolve.stdout, /Next: vlp review$/m);
+  assert.equal(statusAfterResolve.stdout.includes(root), false);
+});
+
 test('resolve leaves the unresolved persisted session unchanged when staged artifact writing fails', async () => {
   const root = await makeCliRepo();
   const review = await runCli(['review', '--json'], { cwd: root });

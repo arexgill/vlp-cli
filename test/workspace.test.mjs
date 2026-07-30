@@ -171,7 +171,7 @@ test('workspace fixtures do not contain runnable Node helper files that the test
   assert.deepEqual(fixtureFiles, []);
 });
 
-test('CI workflows pin the workspace floor and cover the release smoke matrix', () => {
+test('CI workflows pin the workspace floor, enforce the release tag/version contract, and cover the release smoke matrix', () => {
   const testWorkflow = readFileSync(path.join(repoRoot, '.github/workflows/test.yml'), 'utf8');
   assert.match(testWorkflow, /node-version:\s*\[20, 22\]/);
   assert.match(testWorkflow, /macos-latest/);
@@ -182,6 +182,9 @@ test('CI workflows pin the workspace floor and cover the release smoke matrix', 
   assert.match(releaseWorkflow, /ubuntu-24\.04-arm/);
   assert.match(releaseWorkflow, /macos-13/);
   assert.match(releaseWorkflow, /macos-latest/);
+  assert.match(releaseWorkflow, /Verify tag matches package version/);
+  assert.match(releaseWorkflow, /GITHUB_REF_NAME/);
+  assert.match(releaseWorkflow, /does not match package\.json version/);
   assert.match(releaseWorkflow, /build-node-bundle/);
   assert.match(releaseWorkflow, /generate-checksums/);
   assert.match(releaseWorkflow, /permissions:\s*\n\s*contents:\s*write/);
