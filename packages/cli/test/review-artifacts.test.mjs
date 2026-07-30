@@ -115,6 +115,28 @@ function failCommitWhere(shouldFail, message) {
   };
 }
 
+function failOnce(when, message) {
+  return { when, message, persistent: false, used: false };
+}
+
+function createRmPlan(rules = []) {
+  const calls = [];
+
+  return {
+    calls,
+    async fn(target, options) {
+      calls.push({ target, options });
+      for (const rule of rules) {
+        if (!rule.when({ target, options })) continue;
+        if (!rule.persistent && rule.used) continue;
+        rule.used = true;
+        throw new Error(rule.message);
+      }
+      return rm(target, options);
+    },
+  };
+}
+
 test('writeFinalArtifacts removes a partial temp file when the report stage write throws', async () => {
   const root = await makeRoot();
   const { session, resolved } = makeSessions();
@@ -193,6 +215,73 @@ test('writeFinalArtifacts rolls back committed report and audit files when the s
   );
 
   await assertArtifactsUnchanged(root, session.sessionId);
+});
+
+test('writeFinalArtifacts attempts cleanup for every stage before throwing aggregated cleanup failures', async () => {
+  const root = await makeRoot();
+  const { session, resolved } = makeSessions();
+  await seedExistingArtifacts(root, session);
+
+  const rmPlan = createRmPlan([
+    failOnce(
+      ({ target }) => target.includes(path.join('.vlp', 'reviews', `.${session.sessionId}.md.`)) && target.endsWith('.bak'),
+      'Injected report cleanup failure',
+    ),
+    failOnce(
+      ({ target }) => target.includes(path.join('.vlp', 'reviews', `.${session.sessionId}.json.`))
+        && !target.includes(path.join('.vlp', 'reviews', '.sessions'))
+        && target.endsWith('.bak'),
+      'Injected audit cleanup failure',
+    ),
+    failOnce(
+      ({ target }) => target.includes(path.join('.vlp', 'reviews', '.sessions', `.${session.sessionId}.json.`)) && target.endsWith('.bak'),
+      'Injected session cleanup failure',
+    ),
+  ]);
+
+  const error = await writeFinalArtifacts(root, 'resolve', resolved, {
+    rmFn: rmPlan.fn,
+  }).catch((caught) => caught);
+
+  assert.equal(error?.message, 'Injected report cleanup failure');
+  assert.deepEqual(error?.secondaryErrors?.map((failure) => failure.message), [
+    'Injected audit cleanup failure',
+    'Injected session cleanup failure',
+  ]);
+  assert.equal(rmPlan.calls.some(({ target }) => target.includes(path.join('.vlp', 'reviews', `.${session.sessionId}.md.`))), true);
+  assert.equal(rmPlan.calls.some(({ target }) => target.includes(path.join('.vlp', 'reviews', `.${session.sessionId}.json.`)) && !target.includes(path.join('.vlp', 'reviews', '.sessions'))), true);
+  assert.equal(rmPlan.calls.some(({ target }) => target.includes(path.join('.vlp', 'reviews', '.sessions', `.${session.sessionId}.json.`))), true);
+
+  await rm(root, { recursive: true, force: true });
+});
+
+test('writeFinalArtifacts commits the session stage after report and audit files on success', async () => {
+  const root = await makeRoot();
+  const { session, resolved } = makeSessions();
+  await seedExistingArtifacts(root, session);
+  const renameCalls = [];
+
+  const result = await writeFinalArtifacts(root, 'resolve', resolved, {
+    renameFn: async (from, to) => {
+      renameCalls.push({ from, to });
+      return rename(from, to);
+    },
+  });
+
+  const commitTargets = renameCalls
+    .filter(({ from }) => from.endsWith('.tmp'))
+    .map(({ to }) => (
+      to.endsWith(path.join('.sessions', `${session.sessionId}.json`))
+        ? path.join('.vlp', 'reviews', '.sessions', `${session.sessionId}.json`)
+        : path.relative(root, to)
+    ));
+
+  assert.deepEqual(commitTargets.slice(-3), [
+    path.join('.vlp', 'reviews', `${session.sessionId}.md`),
+    path.join('.vlp', 'reviews', `${session.sessionId}.json`),
+    path.join('.vlp', 'reviews', '.sessions', `${session.sessionId}.json`),
+  ]);
+  assert.equal(result.reportPath, `.vlp/reviews/${session.sessionId}.md`);
 });
 
 test('writeFinalArtifacts preserves the primary failure when rollback or cleanup also fail', async () => {

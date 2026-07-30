@@ -2,22 +2,30 @@ import { randomUUID } from 'node:crypto';
 import { rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-async function suppress(action) {
-  try {
-    await action();
-  } catch {
-    // Preserve the primary error.
+import { attachSecondaryErrors, collapseErrors } from './error-utils.mjs';
+
+async function collectErrors(actions) {
+  const failures = [];
+
+  for (const action of actions) {
+    try {
+      await action();
+    } catch (error) {
+      failures.push(error);
+    }
   }
+
+  return failures;
 }
 
 async function writeTempFile(tempPath, contents, { writeFileFn, rmFn }) {
   try {
     await writeFileFn(tempPath, contents, { mode: 0o600 });
   } catch (error) {
-    await suppress(async () => {
-      await rmFn(tempPath, { force: true });
-    });
-    throw error;
+    const cleanupErrors = await collectErrors([
+      () => rmFn(tempPath, { force: true }),
+    ]);
+    throw attachSecondaryErrors(error, cleanupErrors, 'Failed to clean up a partial temp file');
   }
 }
 
@@ -45,6 +53,7 @@ export async function stageAtomicFile(finalPath, contents, {
   const backupPath = path.join(directory, `.${fileName}.${randomUUID()}.bak`);
   let committed = false;
   let hasBackup = false;
+  let preserveBackup = false;
 
   await writeTempFile(tempPath, contents, { writeFileFn, rmFn });
 
@@ -54,37 +63,63 @@ export async function stageAtomicFile(finalPath, contents, {
     backupPath,
     async commit() {
       hasBackup = await moveExistingToBackup(finalPath, backupPath, renameFn);
+      preserveBackup = false;
 
       try {
         await renameFn(tempPath, finalPath);
         committed = true;
         return typeof result === 'function' ? result() : result;
       } catch (error) {
+        const restoreErrors = [];
+
         if (hasBackup) {
-          await suppress(async () => {
+          try {
             await renameFn(backupPath, finalPath);
-          });
-          hasBackup = false;
+            hasBackup = false;
+          } catch (restoreError) {
+            preserveBackup = true;
+            restoreErrors.push(restoreError);
+          }
         }
-        throw error;
+
+        throw attachSecondaryErrors(error, restoreErrors, 'Failed to restore the backup file');
       }
     },
     async rollback() {
       if (!committed) return;
 
-      if (hasBackup) {
-        await rmFn(finalPath, { force: true });
-        await renameFn(backupPath, finalPath);
-        hasBackup = false;
-      } else {
-        await rmFn(finalPath, { force: true });
+      const failures = hasBackup
+        ? await collectErrors([
+          () => rmFn(finalPath, { force: true }),
+          async () => {
+            await renameFn(backupPath, finalPath);
+            hasBackup = false;
+            preserveBackup = false;
+          },
+        ])
+        : await collectErrors([
+          () => rmFn(finalPath, { force: true }),
+        ]);
+
+      if (hasBackup && failures.length > 0) {
+        preserveBackup = true;
       }
 
       committed = false;
+      const rollbackError = collapseErrors(failures, 'Failed to roll back a staged file');
+      if (rollbackError) {
+        throw rollbackError;
+      }
     },
     async cleanup() {
-      await rmFn(tempPath, { force: true });
-      await rmFn(backupPath, { force: true });
+      const cleanupError = collapseErrors(await collectErrors([
+        () => rmFn(tempPath, { force: true }),
+        ...(preserveBackup ? [] : [() => rmFn(backupPath, { force: true })]),
+      ]), 'Failed to clean up a staged file');
+
+      if (cleanupError) {
+        throw cleanupError;
+      }
     },
   };
 }

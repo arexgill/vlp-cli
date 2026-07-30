@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { normalizeReviewSession, normalizeSessionId } from '@arexgill/vlp-core';
 
+import { attachSecondaryErrors } from './error-utils.mjs';
 import { stageAtomicFile } from './staged-file.mjs';
 
 const SESSION_DIR = ['.vlp', 'reviews', '.sessions'];
@@ -82,12 +83,25 @@ export async function stageSessionSave(root, session, {
 
 export async function saveSession(root, session, options) {
   const staged = await stageSessionSave(root, session, options);
+  let primaryError = null;
+  let result;
 
   try {
-    return await staged.commit();
-  } finally {
-    await staged.cleanup();
+    result = await staged.commit();
+  } catch (error) {
+    primaryError = error;
   }
+
+  const cleanupError = await staged.cleanup().catch((error) => error);
+
+  if (primaryError) {
+    throw attachSecondaryErrors(primaryError, [cleanupError], 'Failed to clean up the staged session file');
+  }
+  if (cleanupError) {
+    throw cleanupError;
+  }
+
+  return result;
 }
 
 export async function loadSession(root, id) {

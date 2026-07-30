@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { applyDecisions, buildReport } from '@arexgill/vlp-core';
 
+import { attachSecondaryErrors, collapseErrors } from './error-utils.mjs';
 import { createJsonEnvelope, reviewContractPayload, reviewQuestionPayloads } from './json-output.mjs';
 import { stageAtomicFile } from './staged-file.mjs';
 import { stageSessionSave } from './session-store.mjs';
@@ -31,39 +32,43 @@ function unresolvedEnvelope(command, session) {
 }
 
 async function cleanupStages(stages, { suppress = false } = {}) {
-  let firstError = null;
+  const failures = [];
 
   for (const stage of stages) {
     if (!stage?.cleanup) continue;
     try {
       await stage.cleanup();
     } catch (error) {
-      firstError ??= error;
-      if (!suppress) {
-        throw error;
-      }
+      failures.push(error);
     }
   }
 
-  return firstError;
+  const cleanupError = collapseErrors(failures, 'Failed to clean up staged review artifacts');
+  if (cleanupError && !suppress) {
+    throw cleanupError;
+  }
+
+  return cleanupError;
 }
 
 async function rollbackStages(stages, { suppress = false } = {}) {
-  let firstError = null;
+  const failures = [];
 
   for (const stage of [...stages].reverse()) {
     if (!stage?.rollback) continue;
     try {
       await stage.rollback();
     } catch (error) {
-      firstError ??= error;
-      if (!suppress) {
-        throw error;
-      }
+      failures.push(error);
     }
   }
 
-  return firstError;
+  const rollbackError = collapseErrors(failures, 'Failed to roll back staged review artifacts');
+  if (rollbackError && !suppress) {
+    throw rollbackError;
+  }
+
+  return rollbackError;
 }
 
 async function stageArtifactFile(directory, fileName, contents, {
@@ -158,9 +163,9 @@ export async function writeFinalArtifacts(root, command, resolvedSession, option
     await sessionStage.commit();
     committedStages.push(sessionStage);
   } catch (error) {
-    await rollbackStages(committedStages, { suppress: true });
-    await cleanupStages(stages, { suppress: true });
-    throw error;
+    const rollbackError = await rollbackStages(committedStages, { suppress: true });
+    const cleanupError = await cleanupStages(stages, { suppress: true });
+    throw attachSecondaryErrors(error, [rollbackError, cleanupError], 'Failed to finalize review artifacts');
   }
 
   await cleanupStages(stages);

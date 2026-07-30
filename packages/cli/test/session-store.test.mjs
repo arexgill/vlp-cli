@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -35,6 +35,44 @@ function makeSession() {
     },
     { randomUUID: () => uuid },
   );
+}
+
+function failOnce(when, message) {
+  return { when, message, persistent: false, used: false };
+}
+
+function failAlways(when, message) {
+  return { when, message, persistent: true, used: false };
+}
+
+function createRenamePlan(rules = []) {
+  return async (from, to) => {
+    for (const rule of rules) {
+      if (!rule.when({ from, to })) continue;
+      if (!rule.persistent && rule.used) continue;
+      rule.used = true;
+      throw new Error(rule.message);
+    }
+    return rename(from, to);
+  };
+}
+
+function createRmPlan(rules = []) {
+  const calls = [];
+
+  return {
+    calls,
+    async fn(target, options) {
+      calls.push({ target, options });
+      for (const rule of rules) {
+        if (!rule.when({ target, options })) continue;
+        if (!rule.persistent && rule.used) continue;
+        rule.used = true;
+        throw new Error(rule.message);
+      }
+      return rm(target, options);
+    },
+  };
 }
 
 test('saveSession writes a private atomic session file and loadSession preserves repository-relative evidence', async () => {
@@ -75,6 +113,97 @@ test('stageSessionSave removes a partial temp file when the initial write throws
   );
 
   assert.deepEqual(await readdir(sessionDir), []);
+});
+
+test('saveSession retains a recoverable backup and exposes the restore failure when a commit cannot restore the original session file', async () => {
+  const root = await makeRoot();
+  const session = makeSession();
+  await saveSession(root, session);
+  const sessionPath = path.join(root, '.vlp', 'reviews', '.sessions', `${session.sessionId}.json`);
+  const previousContent = await readFile(sessionPath, 'utf8');
+  const updated = {
+    ...session,
+    contract: { ...session.contract, text: 'Updated review task.' },
+  };
+
+  const error = await saveSession(root, updated, {
+    renameFn: createRenamePlan([
+      failOnce(
+        ({ from, to }) => from.endsWith('.tmp') && to.endsWith(path.join('.sessions', `${session.sessionId}.json`)),
+        'Injected session commit failure',
+      ),
+      failAlways(
+        ({ from, to }) => from.endsWith('.bak') && to.endsWith(path.join('.sessions', `${session.sessionId}.json`)),
+        'Injected session restore failure',
+      ),
+    ]),
+  }).catch((caught) => caught);
+
+  assert.equal(error?.message, 'Injected session commit failure');
+  assert.deepEqual(error?.secondaryErrors?.map((failure) => failure.message), ['Injected session restore failure']);
+
+  const sessionDirEntries = (await readdir(path.dirname(sessionPath))).sort();
+  const backupEntry = sessionDirEntries.find((entry) => entry.endsWith('.bak'));
+
+  assert.equal(sessionDirEntries.includes(`${session.sessionId}.json`), false);
+  assert.equal(sessionDirEntries.some((entry) => entry.endsWith('.tmp')), false);
+  assert.ok(backupEntry);
+  assert.equal(await readFile(path.join(path.dirname(sessionPath), backupEntry), 'utf8'), previousContent);
+});
+
+test('saveSession keeps the commit failure primary and still attempts backup cleanup when later cleanup fails', async () => {
+  const root = await makeRoot();
+  const session = makeSession();
+  await saveSession(root, session);
+  const sessionPath = path.join(root, '.vlp', 'reviews', '.sessions', `${session.sessionId}.json`);
+  const updated = {
+    ...session,
+    contract: { ...session.contract, text: 'Updated review task.' },
+  };
+  const rmPlan = createRmPlan([
+    failOnce(({ target }) => target.endsWith('.tmp'), 'Injected session cleanup failure'),
+  ]);
+
+  const error = await saveSession(root, updated, {
+    renameFn: createRenamePlan([
+      failOnce(
+        ({ from, to }) => from.endsWith('.tmp') && to.endsWith(path.join('.sessions', `${session.sessionId}.json`)),
+        'Injected session commit failure',
+      ),
+    ]),
+    rmFn: rmPlan.fn,
+  }).catch((caught) => caught);
+
+  assert.equal(error?.message, 'Injected session commit failure');
+  assert.deepEqual(error?.secondaryErrors?.map((failure) => failure.message), ['Injected session cleanup failure']);
+  assert.equal(rmPlan.calls.some(({ target }) => target.endsWith('.bak')), true);
+});
+
+test('saveSession leaves no temp or backup residue after a normal commit failure', async () => {
+  const root = await makeRoot();
+  const session = makeSession();
+  await saveSession(root, session);
+  const sessionPath = path.join(root, '.vlp', 'reviews', '.sessions', `${session.sessionId}.json`);
+  const previousContent = await readFile(sessionPath, 'utf8');
+  const updated = {
+    ...session,
+    contract: { ...session.contract, text: 'Updated review task.' },
+  };
+
+  await assert.rejects(
+    () => saveSession(root, updated, {
+      renameFn: createRenamePlan([
+        failOnce(
+          ({ from, to }) => from.endsWith('.tmp') && to.endsWith(path.join('.sessions', `${session.sessionId}.json`)),
+          'Injected session commit failure',
+        ),
+      ]),
+    }),
+    /Injected session commit failure/,
+  );
+
+  assert.equal(await readFile(sessionPath, 'utf8'), previousContent);
+  assert.deepEqual(await readdir(path.dirname(sessionPath)), [`${session.sessionId}.json`]);
 });
 
 test('loadSession rejects malformed or corrupt session files', async () => {
