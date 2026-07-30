@@ -15,6 +15,7 @@ import {
 } from '@arexgill/vlp-core';
 
 import { handleContractConfirm, handleContractCreate } from './commands/contract.mjs';
+import { collectFastApiOpenApi } from './fastapi-runtime.mjs';
 import { handleInit } from './commands/init.mjs';
 import { selectChangedFiles } from './git-scope.mjs';
 import { createJsonEnvelope, reviewContractPayload, reviewQuestionPayloads, serializeJsonError, writeJson } from './json-output.mjs';
@@ -223,7 +224,18 @@ async function runReview(parsed, context) {
   const contractRecord = await selectContract(root, parsed.contract);
   const changedPaths = await selectChangedFiles(root, { staged: parsed.staged, base: parsed.base || undefined });
   const sources = await discoverSources({ root, paths: changedPaths });
-  const analysis = await reviewContract({ contract: { content: contractRecord.content }, sources });
+
+  let runtimeEvidence = null;
+  try {
+    const config = await loadConfig(root);
+    if (config?.runtime?.type === 'fastapi') {
+      runtimeEvidence = await collectFastApiOpenApi({ root, appTarget: config.runtime.app });
+    }
+  } catch {
+    runtimeEvidence = null;
+  }
+
+  const analysis = await reviewContract({ contract: { content: contractRecord.content }, sources, runtimeEvidence });
   if (!parsed.json && !isInteractive(tty, stdin, stdout)) {
     throw new Error('Plain review requires an interactive terminal; use --json or --web');
   }

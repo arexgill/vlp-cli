@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 import { analyzeSources } from './analyze-source.mjs';
+import { compareFastApiContracts, normalizeFastApiContracts } from './fastapi-contracts.mjs';
 import { detectQuestions } from './detect-mismatches.mjs';
 
 function cleanText(value) {
@@ -43,10 +44,45 @@ function contractText(contract) {
   return '';
 }
 
-export async function reviewContract({ contract, sources, runtimeEvidence, analysisOptions } = {}) {
+function mergeRuntimeEvidence(runtimeEvidence, injectedQuestions) {
+  if (!Array.isArray(injectedQuestions) || injectedQuestions.length === 0) {
+    return runtimeEvidence;
+  }
+
+  if (Array.isArray(runtimeEvidence)) {
+    return [...injectedQuestions, ...runtimeEvidence];
+  }
+
+  if (runtimeEvidence && typeof runtimeEvidence === 'object') {
+    const questions = Array.isArray(runtimeEvidence.questions) ? runtimeEvidence.questions : [];
+    return {
+      ...runtimeEvidence,
+      questions: [...injectedQuestions, ...questions],
+    };
+  }
+
+  return { questions: injectedQuestions };
+}
+
+export async function reviewContract({ contract, sources, runtimeEvidence, analysisOptions, analysis } = {}) {
   const normalizedSources = Object.freeze((sources || []).map((source) => normalizeSource(source)));
-  const analysis = await analyzeSources(normalizedSources, analysisOptions);
-  const questions = detectQuestions({ contract, analysis, runtimeEvidence });
+  const resolvedAnalysis = analysis || await analyzeSources(normalizedSources, analysisOptions);
+  const fastApiRoutes = normalizeFastApiContracts(resolvedAnalysis.frameworkHints?.fastapiRoutes);
+
+  let mergedRuntimeEvidence = runtimeEvidence;
+  if (fastApiRoutes.length > 0) {
+    const runtimeDiagnostics = runtimeEvidence && typeof runtimeEvidence === 'object' && !Array.isArray(runtimeEvidence)
+      ? runtimeEvidence
+      : null;
+    const fastApiQuestions = compareFastApiContracts({
+      staticContracts: fastApiRoutes,
+      openapi: runtimeDiagnostics?.openapi ?? null,
+      diagnostic: runtimeDiagnostics?.diagnostic ?? null,
+    });
+    mergedRuntimeEvidence = mergeRuntimeEvidence(runtimeEvidence, fastApiQuestions);
+  }
+
+  const questions = detectQuestions({ contract, analysis: resolvedAnalysis, runtimeEvidence: mergedRuntimeEvidence });
 
   const fingerprint = createHash('sha256')
     .update(contractText(contract))
@@ -58,12 +94,12 @@ export async function reviewContract({ contract, sources, runtimeEvidence, analy
   return Object.freeze({
     fingerprint,
     sources: normalizedSources,
-    docUnits: analysis.docUnits,
-    diagnostics: analysis.diagnostics,
+    docUnits: resolvedAnalysis.docUnits,
+    diagnostics: resolvedAnalysis.diagnostics,
     questions,
     meta: {
       sourceCount: normalizedSources.length,
-      docUnitCount: analysis.docUnits.length,
+      docUnitCount: resolvedAnalysis.docUnits.length,
       questionCount: questions.length,
       engine: 'heuristic-local-poc',
     },

@@ -6,6 +6,9 @@ STOP_WORDS = {
     'the', 'a', 'an', 'to', 'of', 'and', 'or', 'is', 'it', 'this', 'that',
     'with', 'from', 'for', 'then', 'when', 'into', 'without', 'must', 'should'
 }
+SCALAR_TYPES = {'int', 'str', 'float', 'bool', 'bytes'}
+IGNORE_TYPES = {'Request', 'Response', 'BackgroundTasks', 'Session'}
+ROUTE_METHODS = {'get', 'post', 'put', 'patch', 'delete', 'options', 'head', 'api_route'}
 
 
 def normalize_word(word):
@@ -83,6 +86,269 @@ def expression_text(source, node):
         base = expression_text(source, node.value)
         return (base + '.' if base else '') + node.attr
     return ''
+
+
+def simple_name(node):
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        base = simple_name(node.value)
+        return (base + '.' if base else '') + node.attr
+    if isinstance(node, ast.Call):
+        return simple_name(node.func)
+    return ''
+
+
+def call_name(node):
+    if isinstance(node, ast.Call):
+        return call_name(node.func)
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return ''
+
+
+def constant_value(node, default=''):
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.Str):
+        return node.s
+    if isinstance(node, ast.Num):
+        return node.n
+    return default
+
+
+def annotation_name(node):
+    if node is None:
+        return ''
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    if isinstance(node, ast.Subscript):
+        inner = getattr(node, 'slice', None)
+        if hasattr(ast, 'Index') and isinstance(inner, getattr(ast, 'Index')):
+            inner = inner.value
+        name = annotation_name(inner)
+        if name:
+            return name
+        return annotation_name(node.value)
+    if isinstance(node, ast.Tuple):
+        for element in node.elts:
+            name = annotation_name(element)
+            if name:
+                return name
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    return ''
+
+
+def is_dependency_call(node):
+    return isinstance(node, ast.Call) and call_name(node) == 'Depends'
+
+
+def route_prefix_value(node):
+    prefix = ''
+    for kw in getattr(node, 'keywords', []):
+        if kw.arg == 'prefix':
+            value = constant_value(kw.value, '')
+            prefix = str(value or '')
+    return prefix
+
+
+def normalize_path(*parts):
+    joined = ''.join(str(part or '') for part in parts)
+    segments = [segment for segment in joined.split('/') if segment]
+    if not segments:
+        return '/'
+    return '/' + '/'.join(segments)
+
+
+def first_target_name(target):
+    if isinstance(target, ast.Name):
+        return target.id
+    return ''
+
+
+def collect_router_metadata(tree, source):
+    routers = {}
+    inclusions = {}
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
+            target_name = call_name(node.value)
+            if target_name == 'APIRouter':
+                prefix = route_prefix_value(node.value)
+                for target in node.targets:
+                    name = first_target_name(target)
+                    if name:
+                        routers[name] = prefix
+
+        if isinstance(node, ast.AnnAssign) and isinstance(node.value, ast.Call):
+            target_name = call_name(node.value)
+            if target_name == 'APIRouter' and isinstance(node.target, ast.Name):
+                routers[node.target.id] = route_prefix_value(node.value)
+
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
+            call = node.value
+            if isinstance(call.func, ast.Attribute) and call.func.attr == 'include_router':
+                parent_name = simple_name(call.func.value)
+                child_name = ''
+                if call.args:
+                    child_name = simple_name(call.args[0])
+                if parent_name and child_name:
+                    prefix = ''
+                    for kw in call.keywords:
+                        if kw.arg == 'prefix':
+                            value = constant_value(kw.value, '')
+                            prefix = str(value or '')
+                    inclusions.setdefault(child_name, []).append((parent_name, prefix))
+
+    return routers, inclusions
+
+
+def composite_prefixes(router_name, routers, inclusions, visited=None):
+    if not router_name:
+        return ['']
+    if visited is None:
+        visited = set()
+    if router_name in visited:
+        return []
+
+    visited.add(router_name)
+    router_prefix = routers.get(router_name, '')
+    parents = inclusions.get(router_name, [])
+    if not parents:
+        visited.remove(router_name)
+        return [router_prefix] if router_prefix else ['']
+
+    result = []
+    for parent_name, include_prefix in parents:
+        parent_prefixes = composite_prefixes(parent_name, routers, inclusions, visited)
+        for parent_prefix in parent_prefixes:
+            result.append(normalize_path(parent_prefix, include_prefix, router_prefix))
+
+    visited.remove(router_name)
+
+    if result:
+        unique = []
+        for value in result:
+            if value not in unique:
+                unique.append(value)
+        return unique
+
+    return [router_prefix] if router_prefix else ['']
+
+
+def dependency_name(node):
+    if not is_dependency_call(node):
+        return ''
+    if node.args:
+        return simple_name(node.args[0]) or annotation_name(node.args[0])
+    return ''
+
+
+def extract_fastapi_routes(tree, source, file_path):
+    routers, inclusions = collect_router_metadata(tree, source)
+    routes = []
+    seen = set()
+
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+
+        for decorator in node.decorator_list:
+            if not (isinstance(decorator, ast.Call) and isinstance(decorator.func, ast.Attribute)):
+                continue
+
+            method = decorator.func.attr
+            if method not in ROUTE_METHODS:
+                continue
+
+            router_name = simple_name(decorator.func.value)
+            route_path = ''
+            if decorator.args:
+                route_path = str(constant_value(decorator.args[0], '') or '')
+
+            methods = []
+            if method == 'api_route':
+                for kw in decorator.keywords:
+                    if kw.arg == 'methods' and isinstance(kw.value, (ast.List, ast.Tuple, ast.Set)):
+                        for elt in kw.value.elts:
+                            value = constant_value(elt, '')
+                            if value:
+                                upper = str(value).upper()
+                                if upper not in methods:
+                                    methods.append(upper)
+                if not methods:
+                    methods = ['GET']
+            else:
+                methods = [method.upper()]
+
+            dependencies = []
+            status_code = None
+            response_model = None
+
+            for kw in decorator.keywords:
+                if kw.arg == 'status_code':
+                    status_code = constant_value(kw.value, None)
+                elif kw.arg == 'response_model':
+                    response_model = annotation_name(kw.value) or simple_name(kw.value)
+                elif kw.arg == 'dependencies' and isinstance(kw.value, (ast.List, ast.Tuple)):
+                    for elt in kw.value.elts:
+                        if is_dependency_call(elt):
+                            name = ''
+                            if elt.args:
+                                name = simple_name(elt.args[0]) or annotation_name(elt.args[0])
+                            if name and name not in dependencies:
+                                dependencies.append(name)
+
+            positional_args = list(getattr(node.args, 'posonlyargs', [])) + list(node.args.args)
+            defaults = list(node.args.defaults)
+            defaults_start = len(positional_args) - len(defaults)
+            request_model = None
+            for index, arg in enumerate(positional_args):
+                default = defaults[index - defaults_start] if index >= defaults_start else None
+                if is_dependency_call(default):
+                    name = dependency_name(default)
+                    if name and name not in dependencies:
+                        dependencies.append(name)
+                    continue
+
+                type_name = annotation_name(arg.annotation)
+                if type_name and type_name not in SCALAR_TYPES and type_name not in IGNORE_TYPES:
+                    request_model = type_name
+                    break
+
+            for prefix in composite_prefixes(router_name, routers, inclusions):
+                full_path = normalize_path(prefix, route_path)
+                key = (
+                    file_path,
+                    node.lineno,
+                    full_path,
+                    ','.join(methods),
+                    status_code,
+                    response_model,
+                    ','.join(dependencies),
+                    request_model,
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                routes.append({
+                    'file': file_path,
+                    'lineStart': node.lineno,
+                    'path': full_path,
+                    'methods': methods,
+                    'dependencies': dependencies,
+                    'requestModel': request_model,
+                    'responseModel': response_model,
+                    'statusCode': status_code,
+                })
+
+    routes.sort(key=lambda route: (route['file'], route['lineStart'], route['path'], ','.join(route['methods'])))
+    return routes
 
 
 def signature_details(source, node):
@@ -213,6 +479,7 @@ def walk(node, source, file_path, units, active_symbol):
 def analyze_files(files):
     units = []
     diagnostics = []
+    fastapi_routes = []
 
     for file_data in files:
         file_path = str(file_data.get('path', ''))
@@ -234,13 +501,18 @@ def analyze_files(files):
             })
             continue
 
+        fastapi_routes.extend(extract_fastapi_routes(tree, source, file_path))
         make_unit(units, file_path, '<module>', 'module', tree, module_summary(tree), file_path)
         walk(tree, source, file_path, units, '<module>')
+
+    framework_hints = {}
+    if fastapi_routes:
+        framework_hints['fastapiRoutes'] = fastapi_routes
 
     return {
         'units': units,
         'diagnostics': diagnostics,
-        'frameworkHints': {},
+        'frameworkHints': framework_hints,
     }
 
 
