@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -24,6 +24,13 @@ test('exports the exact FastAPI sandbox deadlines', () => {
   assert.equal(FASTAPI_BUILD_TIMEOUT_MS, 600000);
   assert.equal(FASTAPI_RUNTIME_TIMEOUT_MS, 30000);
   assert.equal(FASTAPI_CLEANUP_TIMEOUT_MS, 5000);
+});
+
+test('collect-openapi.py invokes uvicorn with an explicit app object and no factory flag', async () => {
+  const script = await readFile(new URL('../scripts/collect-openapi.py', import.meta.url), 'utf8');
+
+  assert.match(script, /\['uvicorn', app_target, '--host', '127\.0\.0\.1', '--port', '8000'\]/);
+  assert.doesNotMatch(script, /--factory/);
 });
 
 test('collectFastApiOpenApi uses requirements-only build input and a locked-down runtime sandbox', async () => {
@@ -76,7 +83,7 @@ test('collectFastApiOpenApi uses requirements-only build input and a locked-down
 
     const result = await collectFastApiOpenApi({
       root,
-      appTarget: 'service.api:create_app',
+      appTarget: 'service.api:app',
       runDocker,
     });
 
@@ -114,6 +121,8 @@ test('collectFastApiOpenApi uses requirements-only build input and a locked-down
     assert.equal(runArgs.includes('PYTHONPATH=/deps'), true);
     assert.equal(runArgs.includes('image-123'), true);
     assert.doesNotMatch(runArgs.join(' '), /\.ssh|docker\.sock|credentials|home/);
+    assert.doesNotMatch(runArgs.join(' '), /--factory/);
+    assert.deepEqual(runArgs.slice(-3), ['python', '/scripts/collect-openapi.py', 'service.api:app']);
 
     assert.deepEqual(cleanupArgs, ['rmi', '-f', 'image-123']);
   });
@@ -125,7 +134,7 @@ test('collectFastApiOpenApi returns stable diagnostics when runtime collection f
 
     const result = await collectFastApiOpenApi({
       root,
-      appTarget: 'service.api:create_app',
+      appTarget: 'service.api:app',
       runDocker: async (args) => {
         if (args[0] === 'build') {
           return { stdout: 'image-123\n', stderr: '', exitCode: 0 };
@@ -150,7 +159,7 @@ test('collectFastApiOpenApi returns a missing-manifest diagnostic when requireme
   await withTempDir(async (root) => {
     const result = await collectFastApiOpenApi({
       root,
-      appTarget: 'service.api:create_app',
+      appTarget: 'service.api:app',
       runDocker: async () => ({ stdout: '', stderr: '', exitCode: 0 }),
     });
 

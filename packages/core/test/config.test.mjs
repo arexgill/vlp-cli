@@ -33,7 +33,7 @@ test('loadConfig returns the exact version 1 project config with runtime null', 
 test('loadConfig accepts and freezes a fastapi runtime object', async () => {
   const runtime = {
     type: 'fastapi',
-    app: 'service.api:create_app',
+    app: 'service.api:app',
   };
   const root = await makeConfigRoot({
     ...expectedConfig,
@@ -47,7 +47,7 @@ test('loadConfig accepts and freezes a fastapi runtime object', async () => {
   });
   assert.equal(Object.isFrozen(loaded.runtime), true);
   assert.equal(loaded.runtime.type, 'fastapi');
-  assert.equal(loaded.runtime.app, 'service.api:create_app');
+  assert.equal(loaded.runtime.app, 'service.api:app');
 });
 
 test('loadConfig rejects unknown runtime keys', async () => {
@@ -55,7 +55,7 @@ test('loadConfig rejects unknown runtime keys', async () => {
     ...expectedConfig,
     runtime: {
       type: 'fastapi',
-      app: 'service.api:create_app',
+      app: 'service.api:app',
       extra: true,
     },
   });
@@ -68,7 +68,7 @@ test('loadConfig rejects unsupported runtime types', async () => {
     ...expectedConfig,
     runtime: {
       type: 'celery',
-      app: 'service.api:create_app',
+      app: 'service.api:app',
     },
   });
 
