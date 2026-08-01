@@ -14,11 +14,22 @@ const temporaryPlanningFiles = new Set([
 ]);
 const oldLower = String.fromCharCode(118, 108, 112);
 const oldUpper = oldLower.toUpperCase();
+const oldScope = `@${oldLower}`;
 const forbidden = [
   oldLower,
   oldUpper,
   `.${oldLower}`,
   `${oldLower}-cli`,
+  `${oldLower}-node-v`,
+  `${oldLower}_version`,
+  `${oldLower}_install_dir`,
+  `${oldLower}_release_base_url`,
+  `${oldLower}_release_api_url`,
+  `${oldScope}/cli`,
+  `${oldScope}/core`,
+  `${oldScope}/ui`,
+  `bin/${oldLower}`,
+  `share/${oldLower}`,
   `@arexgill/${oldLower}`,
 ];
 

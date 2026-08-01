@@ -18,6 +18,12 @@ const exec = promisify(execFile);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const commandBuffer = 20 * 1024 * 1024;
 const version = '0.1.0';
+const legacyLower = String.fromCharCode(118, 108, 112);
+const legacyUpper = legacyLower.toUpperCase();
+
+function legacyEnvName(suffix) {
+  return `${legacyUpper}_${suffix}`;
+}
 
 async function run(command, args, { cwd = repoRoot, env, input } = {}) {
   return new Promise((resolve, reject) => {
@@ -131,10 +137,11 @@ function contentTypeForDownload(filePath) {
   return 'application/octet-stream';
 }
 
-async function makeReleaseServer({ distDir, latestVersion = version, corruptChecksum = false, interruptVersion = null } = {}) {
+async function makeReleaseServer({ distDir, latestVersion = version, corruptChecksum = false, interruptVersion = null, requestLog = [] } = {}) {
   const resolvedDistDir = path.resolve(distDir);
   const server = http.createServer(async (request, response) => {
     const url = new URL(request.url || '/', 'http://127.0.0.1');
+    requestLog.push(url.pathname);
 
     if (url.pathname === '/api/latest') {
       response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
@@ -346,15 +353,69 @@ test('build-node-bundle produces a deterministic fallback tarball with the packa
   assert(entries.includes(`monkeypaw-node-v${version}/package-lock.json`));
   assert(entries.includes(`monkeypaw-node-v${version}/bin/monkeypaw`));
   assert(entries.includes(`monkeypaw-node-v${version}/node_modules/@monkeypaw/cli/bin/monkeypaw.mjs`));
-  assert(entries.includes(`monkeypaw-node-v${version}/node_modules/@monkeypaw/cli/scripts/collect-openapi.py`));
-  assert(entries.includes(`monkeypaw-node-v${version}/node_modules/@monkeypaw/core/scripts/extract-python.py`));
-  assert(entries.includes(`monkeypaw-node-v${version}/node_modules/@monkeypaw/ui/public/index.html`));
+  assert(entries.includes('monkeypaw-node-v0.1.0/bin/monkeypaw'));
+  assert(entries.includes('monkeypaw-node-v0.1.0/node_modules/@monkeypaw/cli/scripts/collect-openapi.py'));
+  assert(entries.includes('monkeypaw-node-v0.1.0/node_modules/@monkeypaw/core/scripts/extract-python.py'));
+  assert(entries.includes('monkeypaw-node-v0.1.0/node_modules/@monkeypaw/ui/public/index.html'));
   assert(entries.includes(`monkeypaw-node-v${version}/node_modules/@monkeypaw/ui/public/styles.css`));
   assert(entries.includes(`monkeypaw-node-v${version}/node_modules/@babel/parser/package.json`));
   assert(entries.includes(`monkeypaw-node-v${version}/node_modules/picomatch/package.json`));
+  assert.equal(entries.some((entry) => entry.includes(`${legacyLower}-node-v`)), false);
 
   const checksum = await readFile(checksumPath, 'utf8');
   assert.match(checksum, /^[0-9a-f]{64}  monkeypaw-node-v0\.1\.0\.tar\.gz\n$/);
+});
+
+test('installer ignores legacy environment overrides and lays out only Monkeypaw-named installed artifacts', async () => {
+  const artifacts = await buildReleaseArtifacts();
+  const requestLog = [];
+  const server = await makeReleaseServer({ distDir: artifacts.distDir, requestLog });
+  const root = await mkdtemp(path.join(tmpdir(), 'monkeypaw-install-hard-break-'));
+  const homeDir = path.join(root, 'home');
+  const binDir = path.join(homeDir, 'bin');
+  const legacyInstallDir = path.join(root, 'legacy-bin');
+  await mkdir(homeDir, { recursive: true });
+  await mkdir(binDir, { recursive: true });
+  await mkdir(legacyInstallDir, { recursive: true });
+
+  try {
+    const install = await run('sh', ['install/install.sh'], {
+      cwd: repoRoot,
+      env: {
+        HOME: homeDir,
+        MONKEYPAW_INSTALL_DIR: binDir,
+        MONKEYPAW_RELEASE_BASE_URL: `${server.baseUrl}/download`,
+        MONKEYPAW_RELEASE_API_URL: `${server.baseUrl}/api/latest`,
+        MONKEYPAW_VERSION: version,
+        [legacyEnvName('INSTALL_DIR')]: legacyInstallDir,
+        [legacyEnvName('RELEASE_API_URL')]: 'http://127.0.0.1.invalid/api/latest',
+        [legacyEnvName('RELEASE_BASE_URL')]: 'http://127.0.0.1.invalid/download',
+        [legacyEnvName('VERSION')]: '0.1.2',
+      },
+    });
+
+    assert.equal(install.code, 0, install.stderr);
+    assert.match(install.stdout, /Installed monkeypaw/);
+    assert.deepEqual(requestLog, [
+      '/download/v0.1.0/monkeypaw-node-v0.1.0.tar.gz',
+      '/download/v0.1.0/monkeypaw-node-v0.1.0.tar.gz.sha256',
+      '/download/v0.1.0/uninstall.sh',
+      '/download/v0.1.0/uninstall.sh.sha256',
+    ]);
+
+    await access(path.join(binDir, 'monkeypaw'));
+    await assert.rejects(access(path.join(binDir, legacyLower)));
+    await assert.rejects(access(path.join(legacyInstallDir, 'monkeypaw')));
+
+    const shareRoot = path.join(homeDir, '.local', 'share');
+    assert.deepEqual(await readdir(shareRoot), ['monkeypaw']);
+    await access(path.join(shareRoot, 'monkeypaw', 'current'));
+    await access(path.join(shareRoot, 'monkeypaw', 'uninstall.sh'));
+    await assert.rejects(access(path.join(shareRoot, legacyLower)));
+  } finally {
+    await server.close();
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test('installed fallback layout exposes collect-openapi.py and resolves FastAPI OpenAPI through the packaged helper', async () => {

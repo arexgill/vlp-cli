@@ -17,6 +17,7 @@ const exec = promisify(execFile);
 const helperPath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'test-support', 'run-cli.mjs');
 const fixedClock = '2026-07-30T12:34:56.000Z';
 const fixedUuid = '123e4567-e89b-12d3-a456-426614174000';
+const legacyHiddenDirectory = `.${String.fromCharCode(118, 108, 112)}`;
 
 async function git(cwd, ...args) {
   await exec('git', args, {
@@ -281,6 +282,7 @@ test('CLI parses global commands and routes init/contract flows', async () => {
   assert.equal(init.code, 0);
   assert.match(init.stdout, /Initialized Monkeypaw project/);
   await stat(path.join(root, '.monkeypaw', 'config.json'));
+  await assert.rejects(() => stat(path.join(root, legacyHiddenDirectory)), /ENOENT/);
 
   const create = await runCli(['contract', 'new', 'Sample Task'], { cwd: root });
   assert.equal(create.code, 0);
