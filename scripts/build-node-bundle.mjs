@@ -46,8 +46,8 @@ async function packWorkspaces(packDir) {
 }
 
 function packageInstallPath(packageName) {
-  const [, shortName] = packageName.split('/');
-  return path.join('@arexgill', shortName);
+  const [scope, shortName] = packageName.split('/');
+  return path.join(scope, shortName);
 }
 
 async function extractWorkspaceTarballs(packResults, packDir, bundleRoot) {
@@ -70,7 +70,7 @@ async function copyRuntimeDependencies(bundleRoot) {
 }
 
 async function writeShim(bundleRoot) {
-  const shimPath = path.join(bundleRoot, 'bin', 'vlp');
+  const shimPath = path.join(bundleRoot, 'bin', 'monkeypaw');
   await mkdir(path.dirname(shimPath), { recursive: true });
   await writeFile(
     shimPath,
@@ -90,7 +90,7 @@ while [ -L "$SCRIPT_PATH" ]; do
   esac
 done
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$SCRIPT_PATH")" && pwd -P)
-CLI_ENTRY="$SCRIPT_DIR/../node_modules/@arexgill/vlp-cli/bin/vlp.mjs"
+CLI_ENTRY="$SCRIPT_DIR/../node_modules/@monkeypaw/cli/bin/monkeypaw.mjs"
 
 resolve_node() {
   for candidate in node node20 nodejs; do
@@ -114,7 +114,7 @@ resolve_node() {
 
 NODE_BIN=$(resolve_node || true)
 if [ -z "$NODE_BIN" ]; then
-  printf '%s\n' 'VLP requires Node 20+ via node, node20, or nodejs.' >&2
+  printf '%s\n' 'Monkeypaw requires Node 20+ via node, node20, or nodejs.' >&2
   exit 1
 fi
 
@@ -173,9 +173,9 @@ async function createDeterministicTarGz(stagingRoot, bundleName, outputPath) {
 async function build() {
   const { outputDir } = parseArgs(process.argv.slice(2));
   const version = await readVersion();
-  const bundleName = `vlp-cli-node-v${version}`;
+  const bundleName = `monkeypaw-node-v${version}`;
   const tarballPath = path.join(outputDir, `${bundleName}.tar.gz`);
-  const tempRoot = await mkdtemp(path.join(tmpdir(), 'vlp-node-bundle-'));
+  const tempRoot = await mkdtemp(path.join(tmpdir(), 'monkeypaw-node-bundle-'));
   const packDir = path.join(tempRoot, 'packs');
   const stagingRoot = path.join(tempRoot, 'staging');
   const bundleRoot = path.join(stagingRoot, bundleName);

@@ -4,13 +4,13 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { createReviewSession } from '@arexgill/vlp-core';
+import { createReviewSession } from '@monkeypaw/core';
 import { loadSession, saveSession, stageSessionSave } from '../src/session-store.mjs';
 
 const uuid = '123e4567-e89b-12d3-a456-426614174000';
 
 async function makeRoot() {
-  const root = await mkdtemp(path.join(tmpdir(), 'vlp-session-store-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'monkeypaw-session-store-'));
   await mkdir(path.join(root, '.git'));
   return root;
 }
@@ -80,7 +80,7 @@ test('saveSession writes a private atomic session file and loadSession preserves
   const session = makeSession();
 
   const saved = await saveSession(root, session);
-  const sessionPath = path.join(root, '.vlp', 'reviews', '.sessions', `${session.sessionId}.json`);
+  const sessionPath = path.join(root, '.monkeypaw', 'reviews', '.sessions', `${session.sessionId}.json`);
 
   assert.equal(saved.sessionId, session.sessionId);
   assert.equal((await readFile(sessionPath, 'utf8')).includes(root), false);
@@ -93,14 +93,14 @@ test('saveSession writes a private atomic session file and loadSession preserves
     assert.equal((await stat(sessionPath)).mode & 0o777, 0o600);
   }
 
-  const sessionJson = await readFile(path.join(root, '.vlp', 'reviews', '.sessions', `${session.sessionId}.json`), 'utf8');
+  const sessionJson = await readFile(path.join(root, '.monkeypaw', 'reviews', '.sessions', `${session.sessionId}.json`), 'utf8');
   assert.match(sessionJson, /session-v1-/);
 });
 
 test('stageSessionSave removes a partial temp file when the initial write throws', async () => {
   const root = await makeRoot();
   const session = makeSession();
-  const sessionDir = path.join(root, '.vlp', 'reviews', '.sessions');
+  const sessionDir = path.join(root, '.monkeypaw', 'reviews', '.sessions');
 
   await assert.rejects(
     () => stageSessionSave(root, session, {
@@ -119,7 +119,7 @@ test('saveSession retains a recoverable backup and exposes the restore failure w
   const root = await makeRoot();
   const session = makeSession();
   await saveSession(root, session);
-  const sessionPath = path.join(root, '.vlp', 'reviews', '.sessions', `${session.sessionId}.json`);
+  const sessionPath = path.join(root, '.monkeypaw', 'reviews', '.sessions', `${session.sessionId}.json`);
   const previousContent = await readFile(sessionPath, 'utf8');
   const updated = {
     ...session,
@@ -155,7 +155,7 @@ test('saveSession keeps the commit failure primary and still attempts backup cle
   const root = await makeRoot();
   const session = makeSession();
   await saveSession(root, session);
-  const sessionPath = path.join(root, '.vlp', 'reviews', '.sessions', `${session.sessionId}.json`);
+  const sessionPath = path.join(root, '.monkeypaw', 'reviews', '.sessions', `${session.sessionId}.json`);
   const updated = {
     ...session,
     contract: { ...session.contract, text: 'Updated review task.' },
@@ -183,7 +183,7 @@ test('saveSession leaves no temp or backup residue after a normal commit failure
   const root = await makeRoot();
   const session = makeSession();
   await saveSession(root, session);
-  const sessionPath = path.join(root, '.vlp', 'reviews', '.sessions', `${session.sessionId}.json`);
+  const sessionPath = path.join(root, '.monkeypaw', 'reviews', '.sessions', `${session.sessionId}.json`);
   const previousContent = await readFile(sessionPath, 'utf8');
   const updated = {
     ...session,
@@ -209,7 +209,7 @@ test('saveSession leaves no temp or backup residue after a normal commit failure
 test('loadSession rejects malformed or corrupt session files', async () => {
   const root = await makeRoot();
   const session = makeSession();
-  const sessionDir = path.join(root, '.vlp', 'reviews', '.sessions');
+  const sessionDir = path.join(root, '.monkeypaw', 'reviews', '.sessions');
   await mkdir(sessionDir, { recursive: true });
   await writeFile(path.join(sessionDir, `${session.sessionId}.json`), '{"broken":');
 
@@ -219,16 +219,16 @@ test('loadSession rejects malformed or corrupt session files', async () => {
 test('saveSession and loadSession reject traversal ids and symlinked session paths', async () => {
   const root = await makeRoot();
   const session = makeSession();
-  const outside = await mkdtemp(path.join(tmpdir(), 'vlp-session-outside-'));
+  const outside = await mkdtemp(path.join(tmpdir(), 'monkeypaw-session-outside-'));
 
   await assert.rejects(() => loadSession(root, '../escape'), /invalid review session id/i);
 
-  await mkdir(path.join(root, '.vlp'), { recursive: true });
-  await symlink(outside, path.join(root, '.vlp', 'reviews'));
+  await mkdir(path.join(root, '.monkeypaw'), { recursive: true });
+  await symlink(outside, path.join(root, '.monkeypaw', 'reviews'));
   await assert.rejects(() => saveSession(root, session), /symbolic link/i);
 
-  await rm(path.join(root, '.vlp'), { recursive: true, force: true });
-  const sessionDir = path.join(root, '.vlp', 'reviews', '.sessions');
+  await rm(path.join(root, '.monkeypaw'), { recursive: true, force: true });
+  const sessionDir = path.join(root, '.monkeypaw', 'reviews', '.sessions');
   await mkdir(sessionDir, { recursive: true });
   const realSessionPath = path.join(outside, `${session.sessionId}.json`);
   await writeFile(realSessionPath, JSON.stringify(session));

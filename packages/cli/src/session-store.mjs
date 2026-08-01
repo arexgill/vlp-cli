@@ -1,12 +1,12 @@
 import { lstat, mkdir, readFile, rename, realpath, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { normalizeReviewSession, normalizeSessionId } from '@arexgill/vlp-core';
+import { normalizeReviewSession, normalizeSessionId } from '@monkeypaw/core';
 
 import { attachSecondaryErrors } from './error-utils.mjs';
 import { stageAtomicFile } from './staged-file.mjs';
 
-const SESSION_DIR = ['.vlp', 'reviews', '.sessions'];
+const SESSION_DIR = ['.monkeypaw', 'reviews', '.sessions'];
 
 async function canonicalRoot(root) {
   return realpath(path.resolve(String(root ?? '.')));

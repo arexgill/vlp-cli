@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { createSourcePathMatcher, validateSourceGlobArray } from './source-paths.mjs';
 
-export const CONFIG_PATH = '.vlp/config.json';
+export const CONFIG_PATH = '.monkeypaw/config.json';
 
 export const DEFAULT_CONFIG = Object.freeze({
   version: 1,

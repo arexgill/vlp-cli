@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
-import { buildContractDocument } from '@arexgill/vlp-core';
+import { buildContractDocument } from '@monkeypaw/core';
 import { access, mkdir, mkdtemp, readdir, readFile, stat, symlink, writeFile } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -17,6 +17,7 @@ const exec = promisify(execFile);
 const helperPath = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'test-support', 'run-cli.mjs');
 const fixedClock = '2026-07-30T12:34:56.000Z';
 const fixedUuid = '123e4567-e89b-12d3-a456-426614174000';
+const legacyHiddenDirectory = `.${String.fromCharCode(118, 108, 112)}`;
 
 async function git(cwd, ...args) {
   await exec('git', args, {
@@ -32,7 +33,7 @@ async function git(cwd, ...args) {
 }
 
 async function makeCliRepo() {
-  const root = await mkdtemp(path.join(tmpdir(), 'vlp-cli-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'monkeypaw-'));
   await git(root, 'init');
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(
@@ -49,7 +50,7 @@ async function makeCliRepo() {
 
   await initializeProject(root);
   await writeFile(
-    path.join(root, '.vlp', 'contracts', 'search-scope.md'),
+    path.join(root, '.monkeypaw', 'contracts', 'search-scope.md'),
     buildContractDocument({
       slug: 'search-scope',
       created: fixedClock,
@@ -71,7 +72,7 @@ async function makeCliRepo() {
 }
 
 async function makePythonCliRepo() {
-  const root = await mkdtemp(path.join(tmpdir(), 'vlp-cli-py-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'monkeypaw-py-'));
   await git(root, 'init');
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(
@@ -88,7 +89,7 @@ async function makePythonCliRepo() {
 
   await initializeProject(root);
   await writeFile(
-    path.join(root, '.vlp', 'contracts', 'search-scope.md'),
+    path.join(root, '.monkeypaw', 'contracts', 'search-scope.md'),
     buildContractDocument({
       slug: 'search-scope',
       created: fixedClock,
@@ -110,7 +111,7 @@ async function makePythonCliRepo() {
 }
 
 async function makeFastApiCliRepo({ runtimeOptIn = false } = {}) {
-  const root = await mkdtemp(path.join(tmpdir(), 'vlp-cli-fastapi-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'monkeypaw-fastapi-'));
   await git(root, 'init');
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(
@@ -128,14 +129,14 @@ async function makeFastApiCliRepo({ runtimeOptIn = false } = {}) {
   await initializeProject(root);
 
   if (runtimeOptIn) {
-    const configPath = path.join(root, '.vlp', 'config.json');
+    const configPath = path.join(root, '.monkeypaw', 'config.json');
     const config = JSON.parse(await readFile(configPath, 'utf8'));
     config.runtime = { type: 'fastapi', app: 'src.api:app' };
     await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
   }
 
   await writeFile(
-    path.join(root, '.vlp', 'contracts', 'api-runtime.md'),
+    path.join(root, '.monkeypaw', 'contracts', 'api-runtime.md'),
     buildContractDocument({
       slug: 'api-runtime',
       created: fixedClock,
@@ -155,7 +156,7 @@ async function makeFastApiCliRepo({ runtimeOptIn = false } = {}) {
 }
 
 async function makeDeleteOnlyCliRepo() {
-  const root = await mkdtemp(path.join(tmpdir(), 'vlp-cli-delete-only-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'monkeypaw-delete-only-'));
   await git(root, 'init');
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, 'src', 'keep.js'), 'export const keep = true;\n');
@@ -166,7 +167,7 @@ async function makeDeleteOnlyCliRepo() {
   await stat(path.join(root, 'src', 'remove-me.js'));
   await initializeProject(root);
   await writeFile(
-    path.join(root, '.vlp', 'contracts', 'delete-only.md'),
+    path.join(root, '.monkeypaw', 'contracts', 'delete-only.md'),
     buildContractDocument({
       slug: 'delete-only',
       created: fixedClock,
@@ -195,7 +196,7 @@ async function makeDeleteOnlyCliRepo() {
 }
 
 async function writeConfig(root, updater) {
-  const configPath = path.join(root, '.vlp', 'config.json');
+  const configPath = path.join(root, '.monkeypaw', 'config.json');
   const config = JSON.parse(await readFile(configPath, 'utf8'));
   updater(config);
   await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`);
@@ -218,7 +219,7 @@ async function commandPath(command) {
 }
 
 async function makeGitOnlyPath() {
-  const root = await mkdtemp(path.join(tmpdir(), 'vlp-git-only-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'monkeypaw-git-only-'));
   await symlink(await commandPath('git'), path.join(root, 'git'));
   return root;
 }
@@ -229,9 +230,9 @@ function runCli(args, { cwd, input = '', env = {} } = {}) {
       cwd,
       env: {
         ...process.env,
-        VLP_TEST_RUNNER: '1',
-        VLP_TEST_CLOCK: fixedClock,
-        VLP_TEST_UUID: fixedUuid,
+        MONKEYPAW_TEST_RUNNER: '1',
+        MONKEYPAW_TEST_CLOCK: fixedClock,
+        MONKEYPAW_TEST_UUID: fixedUuid,
         ...env,
       },
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -265,7 +266,7 @@ function writableBuffer() {
 }
 
 test('CLI parses global commands and routes init/contract flows', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'vlp-cli-init-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'monkeypaw-init-'));
   await git(root, 'init');
 
   const version = await runCli(['--version'], { cwd: root });
@@ -275,12 +276,13 @@ test('CLI parses global commands and routes init/contract flows', async () => {
 
   const help = await runCli(['--help'], { cwd: root });
   assert.equal(help.code, 0);
-  assert.match(help.stdout, /vlp review/);
+  assert.match(help.stdout, /monkeypaw review/);
 
   const init = await runCli(['init'], { cwd: root });
   assert.equal(init.code, 0);
-  assert.match(init.stdout, /Initialized VLP project/);
-  await stat(path.join(root, '.vlp', 'config.json'));
+  assert.match(init.stdout, /Initialized Monkeypaw project/);
+  await stat(path.join(root, '.monkeypaw', 'config.json'));
+  await assert.rejects(() => stat(path.join(root, legacyHiddenDirectory)), /ENOENT/);
 
   const create = await runCli(['contract', 'new', 'Sample Task'], { cwd: root });
   assert.equal(create.code, 0);
@@ -302,9 +304,9 @@ test('review defaults to terminal mode in a TTY and aborts without writing a par
     cwd: root,
     input: 'q\n',
     env: {
-      VLP_TEST_STDIN_TTY: '1',
-      VLP_TEST_STDOUT_TTY: '1',
-      VLP_TEST_STDERR_TTY: '1',
+      MONKEYPAW_TEST_STDIN_TTY: '1',
+      MONKEYPAW_TEST_STDOUT_TTY: '1',
+      MONKEYPAW_TEST_STDERR_TTY: '1',
     },
   });
 
@@ -314,7 +316,7 @@ test('review defaults to terminal mode in a TTY and aborts without writing a par
   assert.match(result.stderr, /aborted/i);
 
   const sessionId = `session-v1-${fixedUuid.replaceAll('-', '')}`;
-  const reviewDir = path.join(root, '.vlp', 'reviews');
+  const reviewDir = path.join(root, '.monkeypaw', 'reviews');
   const reviewDirEntries = await readdir(reviewDir);
   assert.deepEqual(reviewDirEntries, []);
   await assert.rejects(() => stat(path.join(reviewDir, '.sessions')), /ENOENT/);
@@ -332,7 +334,7 @@ test('plain review fails safely in a non-TTY and points callers to JSON or web m
   assert.match(result.stderr, /--json/);
   assert.match(result.stderr, /--web/);
 
-  const reviewDir = path.join(root, '.vlp', 'reviews');
+  const reviewDir = path.join(root, '.monkeypaw', 'reviews');
   const sessionId = `session-v1-${fixedUuid.replaceAll('-', '')}`;
   const reviewDirEntries = await readdir(reviewDir);
   assert.deepEqual(reviewDirEntries, []);
@@ -358,12 +360,12 @@ test('review --json emits the exact envelope schema and exit code 3 for unresolv
   assert.equal(json.reportPath, null);
   assert.equal(json.error, null);
   assert.equal(json.contract.id, 'search-scope');
-  assert.equal(json.contract.path, '.vlp/contracts/search-scope.md');
+  assert.equal(json.contract.path, '.monkeypaw/contracts/search-scope.md');
   assert.equal(Array.isArray(json.questions), true);
   assert.equal(json.questions.length > 0, true);
   assert.equal(JSON.stringify(json).includes(root), false);
 
-  await stat(path.join(root, '.vlp', 'reviews', '.sessions', `${json.sessionId}.json`));
+  await stat(path.join(root, '.monkeypaw', 'reviews', '.sessions', `${json.sessionId}.json`));
 });
 
 test('resolve accepts file input, validates against the persisted session, and returns exit code 2 when corrections are required', async () => {
@@ -389,11 +391,11 @@ test('resolve accepts file input, validates against the persisted session, and r
   assert.equal(json.command, 'resolve');
   assert.equal(json.status, 'corrections-required');
   assert.equal(json.sessionId, envelope.sessionId);
-  assert.equal(json.reportPath, `.vlp/reviews/${envelope.sessionId}.md`);
+  assert.equal(json.reportPath, `.monkeypaw/reviews/${envelope.sessionId}.md`);
   assert.equal(json.error, null);
   assert.equal(JSON.stringify(json).includes(root), false);
   assert.equal((await readFile(path.join(root, json.reportPath), 'utf8')).includes('Search name, description, category, and tags.'), true);
-  assert.equal((await readFile(path.join(root, '.vlp', 'reviews', `${envelope.sessionId}.json`), 'utf8')).includes(root), false);
+  assert.equal((await readFile(path.join(root, '.monkeypaw', 'reviews', `${envelope.sessionId}.json`), 'utf8')).includes(root), false);
 });
 
 test('resolve accepts stdin input and returns exit code 0 when all decisions are non-corrective', async () => {
@@ -415,7 +417,7 @@ test('resolve accepts stdin input and returns exit code 0 when all decisions are
   assert.equal(result.code, 0);
   const json = JSON.parse(result.stdout);
   assert.equal(json.status, 'completed');
-  assert.equal(json.reportPath, `.vlp/reviews/${envelope.sessionId}.md`);
+  assert.equal(json.reportPath, `.monkeypaw/reviews/${envelope.sessionId}.md`);
 });
 
 
@@ -428,7 +430,7 @@ test('real review and resolve flows are reflected in status from persisted sessi
   const statusAfterReview = await runCli(['status'], { cwd: root });
   assert.equal(statusAfterReview.code, 0);
   assert.match(statusAfterReview.stdout, new RegExp(`Latest review: unresolved \\(${unresolved.sessionId}\\)`));
-  assert.match(statusAfterReview.stdout, new RegExp(`Next: vlp resolve --session ${unresolved.sessionId} --input <file> --json`));
+  assert.match(statusAfterReview.stdout, new RegExp(`Next: monkeypaw resolve --session ${unresolved.sessionId} --input <file> --json`));
   assert.equal(statusAfterReview.stdout.includes(root), false);
 
   const decisions = unresolved.questions.map((question) => ({
@@ -445,7 +447,7 @@ test('real review and resolve flows are reflected in status from persisted sessi
   const statusAfterResolve = await runCli(['status'], { cwd: root });
   assert.equal(statusAfterResolve.code, 0);
   assert.match(statusAfterResolve.stdout, new RegExp(`Latest review: completed \\(${unresolved.sessionId}\\)`));
-  assert.match(statusAfterResolve.stdout, /Next: vlp review$/m);
+  assert.match(statusAfterResolve.stdout, /Next: monkeypaw review$/m);
   assert.equal(statusAfterResolve.stdout.includes(root), false);
 });
 
@@ -453,7 +455,7 @@ test('resolve leaves the unresolved persisted session unchanged when staged arti
   const root = await makeCliRepo();
   const review = await runCli(['review', '--json'], { cwd: root });
   const envelope = JSON.parse(review.stdout);
-  const sessionPath = path.join(root, '.vlp', 'reviews', '.sessions', `${envelope.sessionId}.json`);
+  const sessionPath = path.join(root, '.monkeypaw', 'reviews', '.sessions', `${envelope.sessionId}.json`);
   const before = await readFile(sessionPath, 'utf8');
   const stdout = writableBuffer();
   const stderr = writableBuffer();
@@ -489,7 +491,7 @@ test('resolve leaves the unresolved persisted session unchanged when staged arti
   assert.equal(json.status, 'error');
   assert.equal(json.error.message, 'Injected staged write failure');
   assert.equal(await readFile(sessionPath, 'utf8'), before);
-  assert.deepEqual((await readdir(path.join(root, '.vlp', 'reviews'))).sort(), ['.sessions']);
+  assert.deepEqual((await readdir(path.join(root, '.monkeypaw', 'reviews'))).sort(), ['.sessions']);
 });
 
 test('status and doctor stay redacted and never expose environment credential values', async () => {
@@ -540,7 +542,7 @@ test('status and review honor configured include/exclude globs for changed files
   const json = JSON.parse(review.stdout);
   assert.equal(json.status, 'error');
   assert.equal(json.error.message, 'No supported source files were found');
-  assert.deepEqual(await readdir(path.join(root, '.vlp', 'reviews')), []);
+  assert.deepEqual(await readdir(path.join(root, '.monkeypaw', 'reviews')), []);
 });
 
 test('invalid existing config fails status, doctor, and review visibly', async () => {
@@ -562,7 +564,7 @@ test('invalid existing config fails status, doctor, and review visibly', async (
   const json = JSON.parse(review.stdout);
   assert.equal(json.status, 'error');
   assert.match(json.error.message, /relative glob/i);
-  assert.deepEqual(await readdir(path.join(root, '.vlp', 'reviews')), []);
+  assert.deepEqual(await readdir(path.join(root, '.monkeypaw', 'reviews')), []);
 });
 
 
@@ -604,10 +606,10 @@ test('review exits 1 with a stable python analysis error and no persistence when
   assert.equal(json.status, 'error');
   assert.equal(json.reportPath, null);
   assert.equal(json.questions, null);
-  assert.equal(json.error.code, 'ERR_VLP_PYTHON_ANALYSIS');
+  assert.equal(json.error.code, 'ERR_MONKEYPAW_PYTHON_ANALYSIS');
   assert.equal(json.error.message, 'Python analysis failed');
-  assert.deepEqual(await readdir(path.join(root, '.vlp', 'reviews')), []);
-  await assert.rejects(() => stat(path.join(root, '.vlp', 'reviews', '.sessions')), /ENOENT/);
+  assert.deepEqual(await readdir(path.join(root, '.monkeypaw', 'reviews')), []);
+  await assert.rejects(() => stat(path.join(root, '.monkeypaw', 'reviews', '.sessions')), /ENOENT/);
 });
 
 test('delete-only review fails cleanly without falling back to whole-repo discovery', async () => {
@@ -620,8 +622,8 @@ test('delete-only review fails cleanly without falling back to whole-repo discov
   const json = JSON.parse(result.stdout);
   assert.equal(json.status, 'error');
   assert.equal(json.error.message, 'No supported source files were found');
-  assert.deepEqual(await readdir(path.join(root, '.vlp', 'reviews')), []);
-  await assert.rejects(() => stat(path.join(root, '.vlp', 'reviews', '.sessions')), /ENOENT/);
+  assert.deepEqual(await readdir(path.join(root, '.monkeypaw', 'reviews')), []);
+  await assert.rejects(() => stat(path.join(root, '.monkeypaw', 'reviews', '.sessions')), /ENOENT/);
 });
 
 test('review --json injects explicit FastAPI runtime diagnostics into JSON/report output while preserving Python analysis', async () => {
@@ -639,7 +641,7 @@ test('review --json injects explicit FastAPI runtime diagnostics into JSON/repor
   assert.deepEqual(runtimeQuestion.runtimeEvidence, { type: 'diagnostic', message: 'No requirements.txt found' });
   assert.equal(JSON.stringify(json).includes(root), false);
 
-  const storedSession = JSON.parse(await readFile(path.join(root, '.vlp', 'reviews', '.sessions', `${json.sessionId}.json`), 'utf8'));
+  const storedSession = JSON.parse(await readFile(path.join(root, '.monkeypaw', 'reviews', '.sessions', `${json.sessionId}.json`), 'utf8'));
   assert.equal(storedSession.docUnits.some((unit) => unit.file === 'src/api.py'), true);
   assert.equal(storedSession.questions.some((question) => question.type === 'runtime-diagnostic'), true);
 

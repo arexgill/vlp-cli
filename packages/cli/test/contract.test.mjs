@@ -5,13 +5,13 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { buildContractDocument } from '@arexgill/vlp-core';
+import { buildContractDocument } from '@monkeypaw/core';
 
 import { confirmContract, createContract } from '../src/commands/contract.mjs';
 import { initializeProject } from '../src/project.mjs';
 
 async function makeRepo() {
-  const root = await mkdtemp(path.join(tmpdir(), 'vlp-contract-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'monkeypaw-contract-'));
   await mkdir(path.join(root, '.git'), { recursive: true });
   const nested = path.join(root, 'packages', 'app', 'src');
   const otherNested = path.join(root, 'services', 'api');
@@ -38,7 +38,7 @@ test('createContract rejects unsafe names and uses an atomic exclusive write unl
   });
   assert.equal(created.slug, 'sample-task');
   assert.equal(created.status, 'draft');
-  assert.equal(created.path, '.vlp/contracts/sample-task.md');
+  assert.equal(created.path, '.monkeypaw/contracts/sample-task.md');
   assert.match(created.content, /status: draft/);
   assert.equal(exclusiveWrites.length, 1);
   assert.deepEqual(exclusiveWrites[0].options, { flag: 'wx' });
@@ -64,15 +64,15 @@ test('createContract and confirmContract resolve the repository root from nested
   const { root, nested, otherNested } = await makeRepo();
 
   const created = await createContract(nested, 'Sample Task', { clock });
-  assert.equal(created.path, '.vlp/contracts/sample-task.md');
-  assert.equal(await readFile(path.join(root, '.vlp/contracts/sample-task.md'), 'utf8'), created.content);
-  await assert.rejects(readFile(path.join(nested, '.vlp/contracts/sample-task.md'), 'utf8'));
+  assert.equal(created.path, '.monkeypaw/contracts/sample-task.md');
+  assert.equal(await readFile(path.join(root, '.monkeypaw/contracts/sample-task.md'), 'utf8'), created.content);
+  await assert.rejects(readFile(path.join(nested, '.monkeypaw/contracts/sample-task.md'), 'utf8'));
 
   const confirmed = await confirmContract(otherNested, 'Sample Task');
   assert.equal(confirmed.status, 'confirmed');
-  assert.equal(await readFile(path.join(root, '.vlp/contracts/sample-task.md'), 'utf8'), confirmed.content);
+  assert.equal(await readFile(path.join(root, '.monkeypaw/contracts/sample-task.md'), 'utf8'), confirmed.content);
   assert.match(confirmed.content, /status: confirmed/);
-  await assert.rejects(readFile(path.join(otherNested, '.vlp/contracts/sample-task.md'), 'utf8'));
+  await assert.rejects(readFile(path.join(otherNested, '.monkeypaw/contracts/sample-task.md'), 'utf8'));
 });
 
 test('confirmContract requires the draft sections and promotes status to confirmed', async () => {
@@ -82,10 +82,10 @@ test('confirmContract requires the draft sections and promotes status to confirm
   const confirmed = await confirmContract(nested, 'Sample Task');
   assert.equal(confirmed.status, 'confirmed');
   assert.equal(confirmed.slug, 'sample-task');
-  assert.match(await readFile(path.join(root, '.vlp/contracts/sample-task.md'), 'utf8'), /status: confirmed/);
+  assert.match(await readFile(path.join(root, '.monkeypaw/contracts/sample-task.md'), 'utf8'), /status: confirmed/);
 
   await writeFile(
-    path.join(root, '.vlp/contracts/sample-task.md'),
+    path.join(root, '.monkeypaw/contracts/sample-task.md'),
     draft.content.replace(/\n## Context\n[\s\S]*$/, '\n'),
   );
 
@@ -93,10 +93,10 @@ test('confirmContract requires the draft sections and promotes status to confirm
 });
 
 test('createContract and confirmContract reject non-Git roots even with fake config and draft data', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'vlp-no-git-contract-'));
-  await mkdir(path.join(root, '.vlp'), { recursive: true });
+  const root = await mkdtemp(path.join(tmpdir(), 'monkeypaw-no-git-contract-'));
+  await mkdir(path.join(root, '.monkeypaw'), { recursive: true });
   await writeFile(
-    path.join(root, '.vlp', 'config.json'),
+    path.join(root, '.monkeypaw', 'config.json'),
     `${JSON.stringify({
       version: 1,
       source: {
@@ -107,9 +107,9 @@ test('createContract and confirmContract reject non-Git roots even with fake con
       agentReview: 'off',
     }, null, 2)}\n`,
   );
-  await mkdir(path.join(root, '.vlp', 'contracts'), { recursive: true });
+  await mkdir(path.join(root, '.monkeypaw', 'contracts'), { recursive: true });
   await writeFile(
-    path.join(root, '.vlp', 'contracts', 'sample-task.md'),
+    path.join(root, '.monkeypaw', 'contracts', 'sample-task.md'),
     buildContractDocument({ slug: 'sample-task', created: '2026-07-30T12:34:56.000Z' }),
   );
 

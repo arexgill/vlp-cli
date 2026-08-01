@@ -1,10 +1,10 @@
 #!/bin/sh
 set -eu
 
-INSTALL_DIR=${VLP_INSTALL_DIR:-$HOME/.local/bin}
+INSTALL_DIR=${MONKEYPAW_INSTALL_DIR:-$HOME/.local/bin}
 DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
-DATA_DIR=${DATA_HOME}/vlp-cli
-BIN_LINK=${INSTALL_DIR}/vlp
+DATA_DIR=${DATA_HOME}/monkeypaw
+BIN_LINK=${INSTALL_DIR}/monkeypaw
 CURRENT_LINK=${DATA_DIR}/current
 UNINSTALL_SCRIPT=${DATA_DIR}/uninstall.sh
 
@@ -54,4 +54,4 @@ if [ -d "$DATA_DIR" ]; then
   rmdir "$DATA_DIR" 2>/dev/null || true
 fi
 
-say 'Removed VLP-owned install paths.'
+say 'Removed Monkeypaw-owned install paths.'

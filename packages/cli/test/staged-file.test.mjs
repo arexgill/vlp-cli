@@ -7,7 +7,7 @@ import test from 'node:test';
 import { stageAtomicFile } from '../src/staged-file.mjs';
 
 async function makeRoot() {
-  return mkdtemp(path.join(tmpdir(), 'vlp-staged-file-'));
+  return mkdtemp(path.join(tmpdir(), 'monkeypaw-staged-file-'));
 }
 
 function failOnce(when, message) {

@@ -12,9 +12,9 @@ const exec = promisify(execFile);
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const workspacePackagePaths = {
-  'packages/core': '@arexgill/vlp-core',
-  'packages/cli': '@arexgill/vlp-cli',
-  'packages/ui': '@arexgill/vlp-ui',
+  'packages/core': '@monkeypaw/core',
+  'packages/cli': '@monkeypaw/cli',
+  'packages/ui': '@monkeypaw/ui',
 };
 
 const sourceExtensions = new Set(['.js', '.mjs', '.cjs', '.ts', '.tsx']);
@@ -64,13 +64,13 @@ function findWorkspaceImports(sourceText) {
     }
   }
 
-  return [...imports].filter((specifier) => specifier.startsWith('@arexgill/vlp-'));
+  return [...imports].filter((specifier) => specifier.startsWith('@monkeypaw/'));
 }
 
 test('workspace foundation metadata is correct', () => {
   const rootPackage = readJson(path.join(repoRoot, 'package.json'));
 
-  assert.equal(rootPackage.name, 'vlp-cli-workspace');
+  assert.equal(rootPackage.name, 'monkeypaw-workspace');
   assert.equal(rootPackage.private, true);
   assert.equal(rootPackage.version, '0.1.0');
   assert.equal(rootPackage.license, 'MIT');
@@ -98,8 +98,8 @@ test('workspace foundation metadata is correct', () => {
   }
 
   const cliPackage = readJson(path.join(repoRoot, 'packages/cli/package.json'));
-  assert.deepEqual(cliPackage.bin, { vlp: 'bin/vlp.mjs' });
-  assert.equal(readFileSync(path.join(repoRoot, 'packages/cli/bin/vlp.mjs'), 'utf8').startsWith('#!/usr/bin/env node\n'), true);
+  assert.deepEqual(cliPackage.bin, { monkeypaw: 'bin/monkeypaw.mjs' });
+  assert.equal(readFileSync(path.join(repoRoot, 'packages/cli/bin/monkeypaw.mjs'), 'utf8').startsWith('#!/usr/bin/env node\n'), true);
   assert.deepEqual(cliPackage.files, ['bin', 'scripts', 'src']);
   assert.deepEqual(cliPackage.exports, {
     '.': './src/index.mjs',
@@ -183,20 +183,20 @@ for (const workspacePath of Object.keys(workspacePackagePaths)) {
 }
 
 test('packed workspace installs the UI asset-root API and lets the CLI web server serve installed assets', async () => {
-  const packDir = await mkdtemp(path.join(tmpdir(), 'vlp-pack-'));
+  const packDir = await mkdtemp(path.join(tmpdir(), 'monkeypaw-pack-'));
   await exec('npm', ['pack', '--workspaces', '--pack-destination', packDir], {
     cwd: repoRoot,
     maxBuffer: commandBuffer,
   });
 
-  const cliTarball = path.join(packDir, 'arexgill-vlp-cli-0.1.0.tgz');
-  const coreTarball = path.join(packDir, 'arexgill-vlp-core-0.1.0.tgz');
-  const uiTarball = path.join(packDir, 'arexgill-vlp-ui-0.1.0.tgz');
+  const cliTarball = path.join(packDir, 'monkeypaw-cli-0.1.0.tgz');
+  const coreTarball = path.join(packDir, 'monkeypaw-core-0.1.0.tgz');
+  const uiTarball = path.join(packDir, 'monkeypaw-ui-0.1.0.tgz');
 
   const cliManifest = await readTarJson(cliTarball, 'package/package.json');
   assert.deepEqual(cliManifest.dependencies, {
-    '@arexgill/vlp-core': '0.1.0',
-    '@arexgill/vlp-ui': '0.1.0',
+    '@monkeypaw/core': '0.1.0',
+    '@monkeypaw/ui': '0.1.0',
   });
   assert.deepEqual(cliManifest.files, ['bin', 'scripts', 'src']);
   assert.deepEqual(cliManifest.exports, {
@@ -231,12 +231,12 @@ test('packed workspace installs the UI asset-root API and lets the CLI web serve
     assert(uiEntries.includes(entry), `Missing ${entry} in packed UI tarball`);
   });
 
-  const installRoot = await mkdtemp(path.join(tmpdir(), 'vlp-install-layout-'));
+  const installRoot = await mkdtemp(path.join(tmpdir(), 'monkeypaw-install-layout-'));
   const nodeModulesRoot = path.join(installRoot, 'node_modules');
-  const scopeRoot = path.join(nodeModulesRoot, '@arexgill');
-  await extractTarball(coreTarball, path.join(scopeRoot, 'vlp-core'));
-  await extractTarball(uiTarball, path.join(scopeRoot, 'vlp-ui'));
-  await extractTarball(cliTarball, path.join(scopeRoot, 'vlp-cli'));
+  const scopeRoot = path.join(nodeModulesRoot, '@monkeypaw');
+  await extractTarball(coreTarball, path.join(scopeRoot, 'core'));
+  await extractTarball(uiTarball, path.join(scopeRoot, 'ui'));
+  await extractTarball(cliTarball, path.join(scopeRoot, 'cli'));
   await cp(path.join(repoRoot, 'node_modules', '@babel'), path.join(nodeModulesRoot, '@babel'), { recursive: true });
   await cp(path.join(repoRoot, 'node_modules', 'picomatch'), path.join(nodeModulesRoot, 'picomatch'), { recursive: true });
 
@@ -247,10 +247,10 @@ import { access, mkdir, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { createReviewSession } from '@arexgill/vlp-core';
-import { resolveUiAssetRoot } from '@arexgill/vlp-ui';
-import { saveSession } from '@arexgill/vlp-cli/session-store';
-import { startWebReviewServer } from '@arexgill/vlp-cli/web-server';
+import { createReviewSession } from '@monkeypaw/core';
+import { resolveUiAssetRoot } from '@monkeypaw/ui';
+import { saveSession } from '@monkeypaw/cli/session-store';
+import { startWebReviewServer } from '@monkeypaw/cli/web-server';
 
 const assetRoot = resolveUiAssetRoot();
 await access(path.join(assetRoot, 'index.html'));
@@ -258,18 +258,18 @@ await access(path.join(assetRoot, 'styles.css'));
 await access(path.join(assetRoot, 'app.mjs'));
 await access(path.join(assetRoot, 'web-app.mjs'));
 
-await assert.rejects(import('@arexgill/vlp-cli/src/run.mjs'), /ERR_PACKAGE_PATH_NOT_EXPORTED|Cannot find module|Package subpath/);
-await assert.rejects(import('@arexgill/vlp-core/src/index.mjs'), /ERR_PACKAGE_PATH_NOT_EXPORTED|Cannot find module|Package subpath/);
-await assert.rejects(import('@arexgill/vlp-ui/public/app.mjs'), /ERR_PACKAGE_PATH_NOT_EXPORTED|Cannot find module|Package subpath/);
+await assert.rejects(import('@monkeypaw/cli/src/run.mjs'), /ERR_PACKAGE_PATH_NOT_EXPORTED|Cannot find module|Package subpath/);
+await assert.rejects(import('@monkeypaw/core/src/index.mjs'), /ERR_PACKAGE_PATH_NOT_EXPORTED|Cannot find module|Package subpath/);
+await assert.rejects(import('@monkeypaw/ui/public/app.mjs'), /ERR_PACKAGE_PATH_NOT_EXPORTED|Cannot find module|Package subpath/);
 
-const root = await mkdtemp(path.join(tmpdir(), 'vlp-installed-web-'));
+const root = await mkdtemp(path.join(tmpdir(), 'monkeypaw-installed-web-'));
 await mkdir(path.join(root, '.git'));
 const session = createReviewSession({
   contract: {
     id: 'search-scope',
     slug: 'search-scope',
     status: 'confirmed',
-    path: '.vlp/contracts/search-scope.md',
+    path: '.monkeypaw/contracts/search-scope.md',
     content: '# Search Scope',
   },
   questions: [],

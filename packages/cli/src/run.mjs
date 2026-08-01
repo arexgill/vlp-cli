@@ -12,7 +12,7 @@ import {
   normalizeContractSlug,
   readContractDocument,
   reviewContract,
-} from '@arexgill/vlp-core';
+} from '@monkeypaw/core';
 
 import { handleContractConfirm, handleContractCreate } from './commands/contract.mjs';
 import { handleWebReview } from './commands/web-review.mjs';
@@ -53,7 +53,7 @@ function printLine(stream, message = '') {
 }
 
 async function listContracts(root) {
-  const directory = path.join(root, '.vlp', 'contracts');
+  const directory = path.join(root, '.monkeypaw', 'contracts');
   const entries = await readdir(directory, { withFileTypes: true });
   const contracts = [];
 
@@ -303,7 +303,7 @@ export async function run({ argv = process.argv.slice(2), cwd = process.cwd(), s
     }
 
     if (parsed.command === 'init') {
-      return handlePlainStructuredResult(await handleInit({ root: cwd }), stdout, stderr, (result) => `Initialized VLP project at ${relativeDisplayPath(cwd, result.root)}`);
+      return handlePlainStructuredResult(await handleInit({ root: cwd }), stdout, stderr, (result) => `Initialized Monkeypaw project at ${relativeDisplayPath(cwd, result.root)}`);
     }
 
     if (parsed.command === 'contract' && parsed.action === 'new') {

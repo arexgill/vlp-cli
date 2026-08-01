@@ -5,12 +5,12 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { discoverSources, reviewContract } from '@arexgill/vlp-core';
+import { discoverSources, reviewContract } from '@monkeypaw/core';
 
 const fixtureRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'source-tree');
 
 async function materializeFixtureTree() {
-  const root = await mkdtemp(path.join(tmpdir(), 'vlp-fixture-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'monkeypaw-fixture-'));
   const sourceRoot = path.join(root, 'src');
 
   const files = [

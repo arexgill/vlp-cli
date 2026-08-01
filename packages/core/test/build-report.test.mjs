@@ -5,12 +5,12 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { CORE_LIMITS, buildReport, createReviewSession, discoverSources, reviewContract } from '@arexgill/vlp-core';
+import { CORE_LIMITS, buildReport, createReviewSession, discoverSources, reviewContract } from '@monkeypaw/core';
 
 const fixtureRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'source-tree');
 
 async function materializeFixtureTree() {
-  const root = await mkdtemp(path.join(tmpdir(), 'vlp-fixture-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'monkeypaw-fixture-'));
   const sourceRoot = path.join(root, 'src');
 
   const files = [
@@ -61,7 +61,7 @@ test('builds an agent-ready report without absolute paths', async () => {
     ],
   });
 
-  assert.match(markdown, /# VLP Review Report/);
+  assert.match(markdown, /# Monkeypaw Review Report/);
   assert.match(markdown, new RegExp(`Session: ${session.sessionId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
   assert.match(markdown, /Search name, description, category, and tags/);
   assert.match(markdown, /Keep that behavior/);

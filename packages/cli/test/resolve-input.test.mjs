@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { CORE_LIMITS, createReviewSession } from '@arexgill/vlp-core';
+import { CORE_LIMITS, createReviewSession } from '@monkeypaw/core';
 import { mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -69,7 +69,7 @@ class TrackingReadable extends Readable {
 }
 
 async function makeResolveRepo() {
-  const root = await mkdtemp(path.join(tmpdir(), 'vlp-resolve-bound-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'monkeypaw-resolve-bound-'));
   await git(root, 'init');
   return root;
 }
@@ -81,7 +81,7 @@ async function createResolveSession(root) {
         id: 'search-scope',
         slug: 'search-scope',
         status: 'confirmed',
-        path: '.vlp/contracts/search-scope.md',
+        path: '.monkeypaw/contracts/search-scope.md',
         content: '# Search Scope\n\n- Search name and description.\n',
       },
       sources: [],
@@ -165,7 +165,7 @@ test('resolve --input - accepts an exact-boundary stdin envelope and rejects an 
   assert.equal(boundaryJson.status, 'completed');
   assert.equal(boundaryJson.error, null);
   assert.equal(boundaryJson.sessionId, boundarySession.sessionId);
-  assert.equal(boundaryJson.reportPath, `.vlp/reviews/${boundarySession.sessionId}.md`);
+  assert.equal(boundaryJson.reportPath, `.monkeypaw/reviews/${boundarySession.sessionId}.md`);
   assert.equal(JSON.stringify(boundaryJson).includes(boundaryRoot), false);
   assert.equal((await readFile(path.join(boundaryRoot, boundaryJson.reportPath), 'utf8')).length > 0, true);
 
@@ -199,12 +199,12 @@ test('resolve --input - accepts an exact-boundary stdin envelope and rejects an 
   assert.equal(oversize.stderr, '');
   const oversizeJson = JSON.parse(oversize.stdout);
   assert.equal(oversizeJson.status, 'error');
-  assert.equal(oversizeJson.error.code, 'ERR_VLP_DECISION_ENVELOPE_TOO_LARGE');
+  assert.equal(oversizeJson.error.code, 'ERR_MONKEYPAW_DECISION_ENVELOPE_TOO_LARGE');
   assert.equal(oversizeJson.error.message, `Decision envelope exceeds ${CORE_LIMITS.decisionEnvelopeBytes} bytes`);
   assert.equal(JSON.stringify(oversizeJson).includes(oversizeRoot), false);
   assert.ok(stdin.destroyCount > 0);
   assert.deepEqual(artifactCalls, []);
-  assert.deepEqual((await readdir(path.join(oversizeRoot, '.vlp', 'reviews'))).sort(), ['.sessions']);
+  assert.deepEqual((await readdir(path.join(oversizeRoot, '.monkeypaw', 'reviews'))).sort(), ['.sessions']);
 });
 
 test('resolve --input <file> accepts an exact-boundary file envelope and rejects an oversized file envelope without persisting artifacts', async () => {
@@ -224,7 +224,7 @@ test('resolve --input <file> accepts an exact-boundary file envelope and rejects
   assert.equal(boundary.code, 0);
   const boundaryJson = JSON.parse(boundary.stdout);
   assert.equal(boundaryJson.status, 'completed');
-  assert.equal(boundaryJson.reportPath, `.vlp/reviews/${boundarySession.sessionId}.md`);
+  assert.equal(boundaryJson.reportPath, `.monkeypaw/reviews/${boundarySession.sessionId}.md`);
   assert.equal(JSON.stringify(boundaryJson).includes(boundaryRoot), false);
   assert.equal((await readFile(path.join(boundaryRoot, boundaryJson.reportPath), 'utf8')).length > 0, true);
 
@@ -244,8 +244,8 @@ test('resolve --input <file> accepts an exact-boundary file envelope and rejects
   assert.equal(oversize.code, 1);
   const oversizeJson = JSON.parse(oversize.stdout);
   assert.equal(oversizeJson.status, 'error');
-  assert.equal(oversizeJson.error.code, 'ERR_VLP_DECISION_ENVELOPE_TOO_LARGE');
+  assert.equal(oversizeJson.error.code, 'ERR_MONKEYPAW_DECISION_ENVELOPE_TOO_LARGE');
   assert.equal(oversizeJson.error.message, `Decision envelope exceeds ${CORE_LIMITS.decisionEnvelopeBytes} bytes`);
   assert.equal(JSON.stringify(oversizeJson).includes(oversizeRoot), false);
-  assert.deepEqual((await readdir(path.join(oversizeRoot, '.vlp', 'reviews'))).sort(), ['.sessions']);
+  assert.deepEqual((await readdir(path.join(oversizeRoot, '.monkeypaw', 'reviews'))).sort(), ['.sessions']);
 });

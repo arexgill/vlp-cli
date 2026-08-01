@@ -1,5 +1,5 @@
 {
-  "name": "@arexgill/vlp-cli",
+  "name": "@monkeypaw/cli",
   "version": "0.1.0",
   "license": "MIT",
   "type": "module",
@@ -15,10 +15,10 @@
   },
   "files": ["bin", "scripts", "src"],
   "dependencies": {
-    "@arexgill/vlp-core": "0.1.0",
-    "@arexgill/vlp-ui": "0.1.0"
+    "@monkeypaw/core": "0.1.0",
+    "@monkeypaw/ui": "0.1.0"
   },
   "bin": {
-    "vlp": "bin/vlp.mjs"
+    "monkeypaw": "bin/monkeypaw.mjs"
   }
 }

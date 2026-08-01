@@ -92,7 +92,7 @@ function compilePattern(pattern, { bareDirectory = false } = {}) {
     },
     matchesDirectory(relativePath) {
       const normalizedDirectory = normalizeRelativePath(relativePath);
-      return matcher(normalizedDirectory) || matcher(`${normalizedDirectory}/__vlp_probe__`);
+      return matcher(normalizedDirectory) || matcher(`${normalizedDirectory}/__monkeypaw_probe__`);
     },
   };
 }

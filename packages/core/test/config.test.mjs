@@ -18,9 +18,9 @@ const expectedConfig = {
 };
 
 async function makeConfigRoot(config) {
-  const root = await mkdtemp(path.join(tmpdir(), 'vlp-config-'));
-  await mkdir(path.join(root, '.vlp'), { recursive: true });
-  await writeFile(path.join(root, '.vlp', 'config.json'), `${JSON.stringify(config, null, 2)}\n`);
+  const root = await mkdtemp(path.join(tmpdir(), 'monkeypaw-config-'));
+  await mkdir(path.join(root, '.monkeypaw'), { recursive: true });
+  await writeFile(path.join(root, '.monkeypaw', 'config.json'), `${JSON.stringify(config, null, 2)}\n`);
   return root;
 }
 

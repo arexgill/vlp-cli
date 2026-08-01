@@ -1,5 +1,5 @@
-import { CORE_LIMITS, DecisionEnvelopeValidationError, normalizeSessionId } from '@arexgill/vlp-core';
-import { resolveUiAssetRoot } from '@arexgill/vlp-ui';
+import { CORE_LIMITS, DecisionEnvelopeValidationError, normalizeSessionId } from '@monkeypaw/core';
+import { resolveUiAssetRoot } from '@monkeypaw/ui';
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';

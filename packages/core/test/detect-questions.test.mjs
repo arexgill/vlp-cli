@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { CORE_LIMITS, analyzeSources, detectQuestions } from '@arexgill/vlp-core';
+import { CORE_LIMITS, analyzeSources, detectQuestions } from '@monkeypaw/core';
 
 const contract = {
   text: 'Build searchProducts(products, query). Search relevance must consider product name, description, category, and tags. If the query is empty, return all products. Matching must be case-insensitive.',
