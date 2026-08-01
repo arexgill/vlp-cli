@@ -13,7 +13,7 @@ Keep `# Monkeypaw CLI` as the title. Place the introduction immediately below it
 
 ## Approved Copy
 
-> AI agents are powerful wish-granters—but getting exactly what you asked for is not always the same as getting what you meant. Monkeypaw takes its name from the cautionary tale: it compares your intent with what the agent built, surfaces consequential differences, and leaves the final judgment to you.
+> AI agents are powerful wish-granters—but as every good cautionary tale reminds us, getting exactly what you asked for isn’t always the same as getting what you had in mind. Monkeypaw compares your original intent with what the agent actually built, highlights the differences that matter, and lets you make the final call.
 
 ## Constraints
 
