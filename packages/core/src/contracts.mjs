@@ -1,6 +1,6 @@
 import path from 'node:path';
 
-export const CONTRACTS_DIR = '.vlp/contracts';
+export const CONTRACTS_DIR = '.monkeypaw/contracts';
 export const CONTRACT_FILE_EXTENSION = '.md';
 export const REQUIRED_CONTRACT_SECTIONS = Object.freeze([
   'Intent',

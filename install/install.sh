@@ -2,12 +2,12 @@
 set -eu
 
 REPO_OWNER=arexgill
-REPO_NAME=vlp-cli
-RELEASE_BASE_URL=${VLP_RELEASE_BASE_URL:-https://github.com/$REPO_OWNER/$REPO_NAME/releases/download}
-RELEASE_API_URL=${VLP_RELEASE_API_URL:-https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases/latest}
-INSTALL_DIR=${VLP_INSTALL_DIR:-$HOME/.local/bin}
+REPO_NAME=monkeypaw
+RELEASE_BASE_URL=${MONKEYPAW_RELEASE_BASE_URL:-https://github.com/$REPO_OWNER/$REPO_NAME/releases/download}
+RELEASE_API_URL=${MONKEYPAW_RELEASE_API_URL:-https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases/latest}
+INSTALL_DIR=${MONKEYPAW_INSTALL_DIR:-$HOME/.local/bin}
 DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
-DATA_DIR=${DATA_HOME}/vlp-cli
+DATA_DIR=${DATA_HOME}/monkeypaw
 
 say() {
   printf '%s\n' "$*"
@@ -90,14 +90,14 @@ fetch_file() {
 }
 
 resolve_version() {
-  if [ -n "${VLP_VERSION:-}" ]; then
-    printf '%s\n' "${VLP_VERSION#v}"
+  if [ -n "${MONKEYPAW_VERSION:-}" ]; then
+    printf '%s\n' "${MONKEYPAW_VERSION#v}"
     return 0
   fi
 
-  payload=$(fetch_text "$DOWNLOADER" "$RELEASE_API_URL") || fail "Unable to resolve the latest VLP release"
+  payload=$(fetch_text "$DOWNLOADER" "$RELEASE_API_URL") || fail "Unable to resolve the latest Monkeypaw release"
   version=$(printf '%s' "$payload" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"v\{0,1\}\([^"]*\)".*/\1/p' | head -n 1)
-  [ -n "$version" ] || fail "Unable to parse the latest VLP release version"
+  [ -n "$version" ] || fail "Unable to parse the latest Monkeypaw release version"
   printf '%s\n' "$version"
 }
 
@@ -190,11 +190,11 @@ require_command chmod
 require_command readlink
 require_command mktemp
 NODE_BIN=$(resolve_node || true)
-[ -n "$NODE_BIN" ] || fail 'VLP requires Node 20+ via node, node20, or nodejs.'
+[ -n "$NODE_BIN" ] || fail 'Monkeypaw requires Node 20+ via node, node20, or nodejs.'
 DOWNLOADER=$(resolve_downloader || true)
-[ -n "$DOWNLOADER" ] || fail 'VLP requires curl or wget.'
+[ -n "$DOWNLOADER" ] || fail 'Monkeypaw requires curl or wget.'
 VERSION=$(resolve_version)
-ASSET_NAME=vlp-cli-node-v${VERSION}.tar.gz
+ASSET_NAME=monkeypaw-node-v${VERSION}.tar.gz
 CHECKSUM_NAME=${ASSET_NAME}.sha256
 UNINSTALL_NAME=uninstall.sh
 UNINSTALL_CHECKSUM_NAME=${UNINSTALL_NAME}.sha256
@@ -202,7 +202,7 @@ ASSET_URL=${RELEASE_BASE_URL}/v${VERSION}/${ASSET_NAME}
 CHECKSUM_URL=${RELEASE_BASE_URL}/v${VERSION}/${CHECKSUM_NAME}
 UNINSTALL_URL=${RELEASE_BASE_URL}/v${VERSION}/${UNINSTALL_NAME}
 UNINSTALL_CHECKSUM_URL=${RELEASE_BASE_URL}/v${VERSION}/${UNINSTALL_CHECKSUM_NAME}
-TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/vlp-install.XXXXXX")
+TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/monkeypaw-install.XXXXXX")
 ARCHIVE_PATH=${TMP_DIR}/${ASSET_NAME}
 CHECKSUM_PATH=${TMP_DIR}/${CHECKSUM_NAME}
 UNINSTALL_PATH=${TMP_DIR}/${UNINSTALL_NAME}
@@ -212,7 +212,7 @@ NEW_GENERATION_DIR=
 PREVIOUS_CURRENT_TARGET=
 SWITCHED=0
 CURRENT_LINK=${DATA_DIR}/current
-BIN_LINK=${INSTALL_DIR}/vlp
+BIN_LINK=${INSTALL_DIR}/monkeypaw
 UNINSTALL_INSTALL_PATH=${DATA_DIR}/${UNINSTALL_NAME}
 UNINSTALL_STAGE_PATH=${TMP_DIR}/${UNINSTALL_NAME}.stage
 
@@ -232,7 +232,7 @@ trap 'cleanup $?' EXIT INT TERM HUP
 rollback_after_switch() {
   if [ -n "$PREVIOUS_CURRENT_TARGET" ]; then
     replace_symlink "$PREVIOUS_CURRENT_TARGET" "$CURRENT_LINK"
-    replace_symlink "$CURRENT_LINK/bin/vlp" "$BIN_LINK"
+    replace_symlink "$CURRENT_LINK/bin/monkeypaw" "$BIN_LINK"
   else
     rm -f "$BIN_LINK"
     rm -f "$CURRENT_LINK"
@@ -256,13 +256,13 @@ UNINSTALL_ACTUAL_SUM=$(checksum_value "$UNINSTALL_PATH")
 [ "$UNINSTALL_EXPECTED_SUM" = "$UNINSTALL_ACTUAL_SUM" ] || fail 'Uninstall checksum verification failed.'
 
 tar -xzf "$ARCHIVE_PATH" -C "$EXTRACT_DIR" || fail "Failed to extract ${ASSET_NAME}"
-[ -d "${EXTRACT_DIR}/vlp-cli-node-v${VERSION}" ] || fail 'Release archive had an unexpected layout.'
+[ -d "${EXTRACT_DIR}/monkeypaw-node-v${VERSION}" ] || fail 'Release archive had an unexpected layout.'
 NEW_GENERATION_DIR=$(mktemp -d "${DATA_DIR}/${VERSION}.generation.XXXXXX")
 rmdir "$NEW_GENERATION_DIR"
-mv "${EXTRACT_DIR}/vlp-cli-node-v${VERSION}" "$NEW_GENERATION_DIR"
+mv "${EXTRACT_DIR}/monkeypaw-node-v${VERSION}" "$NEW_GENERATION_DIR"
 PREVIOUS_CURRENT_TARGET=$(owned_link_target "$CURRENT_LINK" || true)
 replace_symlink "$NEW_GENERATION_DIR" "$CURRENT_LINK"
-replace_symlink "$CURRENT_LINK/bin/vlp" "$BIN_LINK"
+replace_symlink "$CURRENT_LINK/bin/monkeypaw" "$BIN_LINK"
 SWITCHED=1
 
 if ! "$BIN_LINK" --version >/dev/null 2>&1; then
@@ -286,6 +286,6 @@ if [ -n "$PREVIOUS_CURRENT_TARGET" ]; then
   fi
 fi
 
-say "Installed vlp ${VERSION} to ${BIN_LINK}"
+say "Installed monkeypaw ${VERSION} to ${BIN_LINK}"
 say "Using Node command: ${NODE_BIN}"
 say "Installed uninstall script to ${UNINSTALL_INSTALL_PATH}"

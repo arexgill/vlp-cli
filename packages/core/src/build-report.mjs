@@ -159,7 +159,7 @@ export function buildReport({ contract, session, decisions = [] } = {}) {
   const sessionId = normalizeSessionId(session?.sessionId);
 
   return [
-    '# VLP Review Report',
+    '# Monkeypaw Review Report',
     '',
     `Session: ${sessionId}`,
     '',

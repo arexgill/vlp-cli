@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { buildContractDocument } from '@arexgill/vlp-core';
+import { buildContractDocument } from '@monkeypaw/core';
 import { mkdir, mkdtemp, readdir, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -40,7 +40,7 @@ function writableBuffer() {
 }
 
 async function makeStatusRepo() {
-  const root = await mkdtemp(path.join(tmpdir(), 'vlp-status-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'monkeypaw-status-'));
   await git(root, 'init');
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(
@@ -59,7 +59,7 @@ async function makeStatusRepo() {
 
 async function writeContract(root, slug, status) {
   await writeFile(
-    path.join(root, '.vlp', 'contracts', `${slug}.md`),
+    path.join(root, '.monkeypaw', 'contracts', `${slug}.md`),
     buildContractDocument({
       slug,
       created: fixedClock,
@@ -75,7 +75,7 @@ async function writeContract(root, slug, status) {
 }
 
 async function writeSession(root, { sessionId, decisions = [], mtime }) {
-  const sessionDir = path.join(root, '.vlp', 'reviews', '.sessions');
+  const sessionDir = path.join(root, '.monkeypaw', 'reviews', '.sessions');
   await mkdir(sessionDir, { recursive: true });
   const filePath = path.join(sessionDir, `${sessionId}.json`);
   const payload = {
@@ -85,7 +85,7 @@ async function writeSession(root, { sessionId, decisions = [], mtime }) {
       id: 'search-scope',
       slug: 'search-scope',
       status: 'confirmed',
-      path: '.vlp/contracts/search-scope.md',
+      path: '.monkeypaw/contracts/search-scope.md',
       content: '# Search Scope',
     },
     sources: [],
@@ -115,7 +115,7 @@ async function writeSession(root, { sessionId, decisions = [], mtime }) {
 }
 
 async function writeAudit(root, { sessionId, status, mtime, command = 'resolve' }) {
-  const reviewDir = path.join(root, '.vlp', 'reviews');
+  const reviewDir = path.join(root, '.monkeypaw', 'reviews');
   await mkdir(reviewDir, { recursive: true });
   const filePath = path.join(reviewDir, `${sessionId}.json`);
   const payload = createJsonEnvelope({
@@ -125,10 +125,10 @@ async function writeAudit(root, { sessionId, status, mtime, command = 'resolve' 
     contract: {
       id: 'search-scope',
       status: 'confirmed',
-      path: '.vlp/contracts/search-scope.md',
+      path: '.monkeypaw/contracts/search-scope.md',
     },
     questions: null,
-    reportPath: status === 'unresolved' ? null : `.vlp/reviews/${sessionId}.md`,
+    reportPath: status === 'unresolved' ? null : `.monkeypaw/reviews/${sessionId}.md`,
     error: null,
   });
   await writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`);
@@ -136,7 +136,7 @@ async function writeAudit(root, { sessionId, status, mtime, command = 'resolve' 
 }
 
 async function writeMalformedAudit(root, name, mtime) {
-  const reviewDir = path.join(root, '.vlp', 'reviews');
+  const reviewDir = path.join(root, '.monkeypaw', 'reviews');
   await mkdir(reviewDir, { recursive: true });
   const filePath = path.join(reviewDir, name);
   await writeFile(filePath, '{not-json');
@@ -144,9 +144,9 @@ async function writeMalformedAudit(root, name, mtime) {
 }
 
 async function writeSymlinkAudit(root, name) {
-  const reviewDir = path.join(root, '.vlp', 'reviews');
+  const reviewDir = path.join(root, '.monkeypaw', 'reviews');
   await mkdir(reviewDir, { recursive: true });
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'vlp-status-audit-target-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'monkeypaw-status-audit-target-'));
   const targetPath = path.join(targetDir, 'linked.json');
   await writeFile(targetPath, '{"status":"completed"}\n');
   await symlink(targetPath, path.join(reviewDir, name));
@@ -179,7 +179,7 @@ test('status reports the latest completed review from a validated session and re
 
   assert.equal(result.code, 0);
   assert.match(result.stdout, /Latest review: completed \(session-v1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\)/);
-  assert.match(result.stdout, /Next: vlp review$/m);
+  assert.match(result.stdout, /Next: monkeypaw review$/m);
   assert.match(result.stdout, /Active contract: search-scope/);
   assert.equal(result.stdout.includes(root), false);
 });
@@ -204,7 +204,7 @@ test('status reports the newest corrections-required review, breaks ties by name
 
   assert.equal(result.code, 0);
   assert.match(result.stdout, /Latest review: corrections-required \(session-v1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\)/);
-  assert.match(result.stdout, /Next: vlp review --contract/);
+  assert.match(result.stdout, /Next: monkeypaw review --contract/);
   assert.match(result.stdout, /Active contract: multiple/);
   assert.equal(result.stdout.includes(root), false);
 });
@@ -222,7 +222,7 @@ test('status prioritizes resolving the latest unresolved review session before s
 
   assert.equal(result.code, 0);
   assert.match(result.stdout, /Latest review: unresolved \(session-v1-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\)/);
-  assert.match(result.stdout, /Next: vlp resolve --session session-v1-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --input <file> --json/);
+  assert.match(result.stdout, /Next: monkeypaw resolve --session session-v1-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --input <file> --json/);
   assert.match(result.stdout, /Active contract: search-scope/);
   assert.equal(result.stdout.includes(root), false);
 });
@@ -246,7 +246,7 @@ test('status derives state from the validated session on audit/session ties and 
 
   assert.equal(result.code, 0);
   assert.match(result.stdout, /Latest review: completed \(session-v1-cccccccccccccccccccccccccccccccc\)/);
-  assert.match(result.stdout, /Next: vlp review$/m);
+  assert.match(result.stdout, /Next: monkeypaw review$/m);
   assert.equal(result.stdout.includes(root), false);
 });
 
@@ -254,10 +254,10 @@ test('status falls back to contract new when no contracts exist and skips malfor
   const root = await makeStatusRepo();
   await writeMalformedAudit(root, 'broken.json', new Date('2026-07-30T12:36:00.000Z'));
   await writeSymlinkAudit(root, 'linked.json');
-  const sessionDir = path.join(root, '.vlp', 'reviews', '.sessions');
+  const sessionDir = path.join(root, '.monkeypaw', 'reviews', '.sessions');
   await mkdir(sessionDir, { recursive: true });
   await writeFile(path.join(sessionDir, 'broken.json'), '{not-json');
-  const targetDir = await mkdtemp(path.join(tmpdir(), 'vlp-status-session-target-'));
+  const targetDir = await mkdtemp(path.join(tmpdir(), 'monkeypaw-status-session-target-'));
   const targetPath = path.join(targetDir, 'linked.json');
   await writeFile(targetPath, '{}\n');
   await symlink(targetPath, path.join(sessionDir, 'linked.json'));
@@ -266,9 +266,9 @@ test('status falls back to contract new when no contracts exist and skips malfor
 
   assert.equal(result.code, 0);
   assert.match(result.stdout, /Latest review: none/);
-  assert.match(result.stdout, /Next: vlp contract new/);
+  assert.match(result.stdout, /Next: monkeypaw contract new/);
   assert.match(result.stdout, /Active contract: none/);
   assert.equal(result.stdout.includes(root), false);
-  assert.deepEqual((await readdir(path.join(root, '.vlp', 'reviews'))).sort(), ['.sessions', 'broken.json', 'linked.json']);
+  assert.deepEqual((await readdir(path.join(root, '.monkeypaw', 'reviews'))).sort(), ['.sessions', 'broken.json', 'linked.json']);
   assert.deepEqual((await readdir(sessionDir)).sort(), ['broken.json', 'linked.json']);
 });

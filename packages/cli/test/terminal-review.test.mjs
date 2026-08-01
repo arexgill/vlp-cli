@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
 import test from 'node:test';
 
-import { createReviewSession } from '@arexgill/vlp-core';
+import { createReviewSession } from '@monkeypaw/core';
 
 import { runTerminalReview } from '../src/terminal-review.mjs';
 

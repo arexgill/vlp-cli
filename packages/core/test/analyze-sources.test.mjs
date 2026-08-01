@@ -4,7 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { analyzeSources } from '@arexgill/vlp-core';
+import { analyzeSources } from '@monkeypaw/core';
 
 const fixtureRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'python');
 
@@ -95,7 +95,7 @@ test('propagates python infrastructure failures instead of folding them into dia
   await assert.rejects(
     analyzeSources([{ path: 'broken.py', language: 'python', content: 'def example():\n    return 1\n' }], { spawnFn }),
     (error) => {
-      assert.equal(error.code, 'ERR_VLP_PYTHON_ANALYSIS');
+      assert.equal(error.code, 'ERR_MONKEYPAW_PYTHON_ANALYSIS');
       assert.equal(error.message, 'Python analysis failed');
       return true;
     },

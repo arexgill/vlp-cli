@@ -20,7 +20,7 @@ async function gitOutput(cwd, ...args) {
 }
 
 async function makeRepo() {
-  const root = await mkdtemp(path.join(tmpdir(), 'vlp-git-scope-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'monkeypaw-git-scope-'));
   await git(root, 'init');
   return root;
 }

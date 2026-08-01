@@ -1,19 +1,19 @@
 import { createReadStream } from 'node:fs';
 import path from 'node:path';
 
-import { CORE_LIMITS } from '@arexgill/vlp-core';
+import { CORE_LIMITS } from '@monkeypaw/core';
 
 export const DECISION_ENVELOPE_LIMIT_BYTES = CORE_LIMITS.decisionEnvelopeBytes;
 
 function oversizeError(limitBytes = DECISION_ENVELOPE_LIMIT_BYTES) {
   const error = new Error(`Decision envelope exceeds ${limitBytes} bytes`);
-  error.code = 'ERR_VLP_DECISION_ENVELOPE_TOO_LARGE';
+  error.code = 'ERR_MONKEYPAW_DECISION_ENVELOPE_TOO_LARGE';
   return error;
 }
 
 function invalidJsonError() {
   const error = new Error('Decision envelope must be valid JSON');
-  error.code = 'ERR_VLP_DECISION_ENVELOPE_JSON';
+  error.code = 'ERR_MONKEYPAW_DECISION_ENVELOPE_JSON';
   return error;
 }
 

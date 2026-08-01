@@ -7,7 +7,7 @@ import {
   loadConfig,
   normalizeContractSlug,
   readContractDocument,
-} from '@arexgill/vlp-core';
+} from '@monkeypaw/core';
 
 import { resolveProjectRoot } from '../project.mjs';
 

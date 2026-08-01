@@ -14,8 +14,8 @@ function assertNoExtra(argv, index) {
 
 export function helpText() {
   return [
-    'vlp <command>',
-    'vlp review',
+    'monkeypaw <command>',
+    'monkeypaw review',
     '',
     'Commands:',
     '  init',

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { buildContractDocument, createReviewSession, CORE_LIMITS } from '@arexgill/vlp-core';
+import { buildContractDocument, createReviewSession, CORE_LIMITS } from '@monkeypaw/core';
 import { mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -48,7 +48,7 @@ function fixedSession() {
       id: 'search-scope',
       slug: 'search-scope',
       status: 'confirmed',
-      path: '.vlp/contracts/search-scope.md',
+      path: '.monkeypaw/contracts/search-scope.md',
       content: '# Search Scope\n\n- Search name and description.',
     },
     sources: [
@@ -88,7 +88,7 @@ function fixedSession() {
 }
 
 async function makeCliRepo() {
-  const root = await mkdtemp(path.join(tmpdir(), 'vlp-web-cli-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'monkeypaw-web-cli-'));
   await git(root, 'init');
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(
@@ -105,7 +105,7 @@ async function makeCliRepo() {
 
   await initializeProject(root);
   await writeFile(
-    path.join(root, '.vlp', 'contracts', 'search-scope.md'),
+    path.join(root, '.monkeypaw', 'contracts', 'search-scope.md'),
     buildContractDocument({
       slug: 'search-scope',
       created: fixedClock,
@@ -132,7 +132,7 @@ test('handleWebReview opens the loopback URL by default and closes the server af
   const stdout = writableBuffer();
 
   const result = await handleWebReview({
-    root: '/tmp/vlp-web-review',
+    root: '/tmp/monkeypaw-web-review',
     session: fixedSession(),
     stdout: stdout.stream,
     open: true,
@@ -141,7 +141,7 @@ test('handleWebReview opens the loopback URL by default and closes the server af
     },
     startServer: async () => ({
       url: 'http://127.0.0.1:43123',
-      waitForCompletion: async () => ({ exitCode: 0, reportPath: '.vlp/reviews/session-v1-123.md', envelope: { status: 'completed' } }),
+      waitForCompletion: async () => ({ exitCode: 0, reportPath: '.monkeypaw/reviews/session-v1-123.md', envelope: { status: 'completed' } }),
       close: async () => {
         events.push('closed');
       },
@@ -152,7 +152,7 @@ test('handleWebReview opens the loopback URL by default and closes the server af
   assert.deepEqual(opened, ['http://127.0.0.1:43123']);
   assert.deepEqual(events, ['closed']);
   assert.match(stdout.text(), /127\.0\.0\.1/);
-  assert.match(stdout.text(), /Review report: \.vlp\/reviews\/session-v1-123\.md/);
+  assert.match(stdout.text(), /Review report: \.monkeypaw\/reviews\/session-v1-123\.md/);
 });
 
 test('web body limit matches the shared core decision-envelope limit', () => {
@@ -163,7 +163,7 @@ test('handleWebReview honors open=false and skips the injected browser dependenc
   let opened = false;
 
   await handleWebReview({
-    root: '/tmp/vlp-web-review',
+    root: '/tmp/monkeypaw-web-review',
     session: fixedSession(),
     stdout: writableBuffer().stream,
     open: false,
@@ -181,7 +181,7 @@ test('handleWebReview honors open=false and skips the injected browser dependenc
 });
 
 test('startWebReviewServer binds to loopback, serves only allowlisted assets, and validates resolve requests against the persisted session', async (t) => {
-  const root = await mkdtemp(path.join(tmpdir(), 'vlp-web-server-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'monkeypaw-web-server-'));
   const session = await saveSession(root, fixedSession());
   const server = await startWebReviewServer({ root, sessionId: session.sessionId });
   t.after(async () => {
@@ -300,12 +300,12 @@ test('startWebReviewServer binds to loopback, serves only allowlisted assets, an
   assert.doesNotMatch(resolvedPayload.markdown, /MALICIOUS QUESTION TEXT/);
   assert.doesNotMatch(resolvedPayload.markdown, /spoofed evidence/);
 
-  const storedReport = await readFile(path.join(root, '.vlp', 'reviews', `${session.sessionId}.md`), 'utf8');
+  const storedReport = await readFile(path.join(root, '.monkeypaw', 'reviews', `${session.sessionId}.md`), 'utf8');
   assert.equal(storedReport, resolvedPayload.markdown);
 
   const completion = await server.waitForCompletion();
   assert.equal(completion.exitCode, 2);
-  assert.equal(completion.reportPath, `.vlp/reviews/${session.sessionId}.md`);
+  assert.equal(completion.reportPath, `.monkeypaw/reviews/${session.sessionId}.md`);
 
   const saved = await loadSession(root, session.sessionId);
   assert.deepEqual(saved.decisions, [{
@@ -316,9 +316,9 @@ test('startWebReviewServer binds to loopback, serves only allowlisted assets, an
 });
 
 test('web resolve leaves the unresolved persisted session unchanged and cleans staged temp files when final artifact staging fails', async (t) => {
-  const root = await mkdtemp(path.join(tmpdir(), 'vlp-web-server-failure-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'monkeypaw-web-server-failure-'));
   const session = await saveSession(root, fixedSession());
-  const sessionPath = path.join(root, '.vlp', 'reviews', '.sessions', `${session.sessionId}.json`);
+  const sessionPath = path.join(root, '.monkeypaw', 'reviews', '.sessions', `${session.sessionId}.json`);
   const before = await readFile(sessionPath, 'utf8');
   let writeCount = 0;
 
@@ -356,9 +356,9 @@ test('web resolve leaves the unresolved persisted session unchanged and cleans s
   assert.deepEqual(await response.json(), { error: 'Internal server error' });
   assert.equal(await readFile(sessionPath, 'utf8'), before);
 
-  const reviewDirEntries = await readdir(path.join(root, '.vlp', 'reviews'));
+  const reviewDirEntries = await readdir(path.join(root, '.monkeypaw', 'reviews'));
   assert.deepEqual(reviewDirEntries.sort(), ['.sessions']);
-  const sessionDirEntries = await readdir(path.join(root, '.vlp', 'reviews', '.sessions'));
+  const sessionDirEntries = await readdir(path.join(root, '.monkeypaw', 'reviews', '.sessions'));
   assert.deepEqual(sessionDirEntries, [`${session.sessionId}.json`]);
 
   const loaded = await loadSession(root, session.sessionId);
@@ -397,7 +397,7 @@ test('browser resolve writes a byte-identical report to terminal review for the 
     randomUUID: () => fixedUuid,
   });
   assert.equal(terminalCode, 0);
-  assert.match(terminalStdout.text(), /Review report: \.vlp\/reviews\//);
+  assert.match(terminalStdout.text(), /Review report: \.monkeypaw\/reviews\//);
   assert.equal(terminalStderr.text(), '');
 
   const server = await startWebReviewServer({ root: browserRoot, sessionId: unresolved.sessionId });
@@ -420,7 +420,7 @@ test('browser resolve writes a byte-identical report to terminal review for the 
   assert.equal(browserResolved.status, 200);
   await server.waitForCompletion();
 
-  const terminalReport = await readFile(path.join(terminalRoot, '.vlp', 'reviews', `${unresolved.sessionId}.md`), 'utf8');
-  const browserReport = await readFile(path.join(browserRoot, '.vlp', 'reviews', `${unresolved.sessionId}.md`), 'utf8');
+  const terminalReport = await readFile(path.join(terminalRoot, '.monkeypaw', 'reviews', `${unresolved.sessionId}.md`), 'utf8');
+  const browserReport = await readFile(path.join(browserRoot, '.monkeypaw', 'reviews', `${unresolved.sessionId}.md`), 'utf8');
   assert.equal(browserReport, terminalReport);
 });

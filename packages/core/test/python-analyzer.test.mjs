@@ -53,7 +53,7 @@ test('analyzePythonSources maps input/output bound violations and helper failure
   const files = [{ path: 'pkg/example.py', source: 'def example():\n    return 1\n' }];
 
   await assert.rejects(analyzePythonSources([{ path: 'big.py', source: 'x'.repeat(512) }], { inputLimitBytes: 32 }), (error) => {
-    assert.equal(error.code, 'ERR_VLP_PYTHON_ANALYSIS');
+    assert.equal(error.code, 'ERR_MONKEYPAW_PYTHON_ANALYSIS');
     assert.equal(error.message, 'Python analysis failed');
     return true;
   });
@@ -68,7 +68,7 @@ test('analyzePythonSources maps input/output bound violations and helper failure
   };
 
   await assert.rejects(analyzePythonSources(files, { spawnFn: () => oversizedOutputChild, outputLimitBytes: 32 }), (error) => {
-    assert.equal(error.code, 'ERR_VLP_PYTHON_ANALYSIS');
+    assert.equal(error.code, 'ERR_MONKEYPAW_PYTHON_ANALYSIS');
     assert.equal(error.message, 'Python analysis failed');
     return true;
   });
@@ -83,7 +83,7 @@ test('analyzePythonSources maps input/output bound violations and helper failure
   };
 
   await assert.rejects(analyzePythonSources(files, { spawnFn: missingPythonSpawn }), (error) => {
-    assert.equal(error.code, 'ERR_VLP_PYTHON_ANALYSIS');
+    assert.equal(error.code, 'ERR_MONKEYPAW_PYTHON_ANALYSIS');
     assert.equal(error.message, 'Python analysis failed');
     return true;
   });
@@ -98,7 +98,7 @@ test('analyzePythonSources maps input/output bound violations and helper failure
   };
 
   await assert.rejects(analyzePythonSources(files, { spawnFn: () => invalidJsonChild }), (error) => {
-    assert.equal(error.code, 'ERR_VLP_PYTHON_ANALYSIS');
+    assert.equal(error.code, 'ERR_MONKEYPAW_PYTHON_ANALYSIS');
     assert.equal(error.message, 'Python analysis failed');
     return true;
   });
@@ -112,7 +112,7 @@ test('analyzePythonSources maps input/output bound violations and helper failure
   };
 
   await assert.rejects(analyzePythonSources(files, { spawnFn: () => failingChild }), (error) => {
-    assert.equal(error.code, 'ERR_VLP_PYTHON_ANALYSIS');
+    assert.equal(error.code, 'ERR_MONKEYPAW_PYTHON_ANALYSIS');
     assert.equal(error.message, 'Python analysis failed');
     return true;
   });

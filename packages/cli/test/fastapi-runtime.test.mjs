@@ -12,7 +12,7 @@ import {
 } from '../src/fastapi-runtime.mjs';
 
 async function withTempDir(callback) {
-  const root = await mkdtemp(path.join(tmpdir(), 'vlp-fastapi-runtime-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'monkeypaw-fastapi-runtime-'));
   try {
     return await callback(root);
   } finally {

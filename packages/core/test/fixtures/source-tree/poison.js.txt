@@ -1,2 +1,2 @@
-globalThis.__vlpCoreFixtureImported = true;
+globalThis.__monkeypawCoreFixtureImported = true;
 throw new Error('fixture code must never execute');

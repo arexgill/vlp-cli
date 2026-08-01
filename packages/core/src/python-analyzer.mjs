@@ -13,7 +13,7 @@ export function resolvePythonHelperPath() {
 
 function safeAnalyzerError() {
   const error = new Error('Python analysis failed');
-  error.code = 'ERR_VLP_PYTHON_ANALYSIS';
+  error.code = 'ERR_MONKEYPAW_PYTHON_ANALYSIS';
   return error;
 }
 

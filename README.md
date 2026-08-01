@@ -1,49 +1,49 @@
-# VLP CLI
+# Monkeypaw CLI
 
-VLP CLI is a terminal-first review tool for contract-driven validation of agent-built changes in local Git repositories.
+Monkeypaw CLI is a terminal-first review tool for contract-driven validation of agent-built changes in local Git repositories.
 
 ## Install
 
 ```bash
-VLP_VERSION=0.1.0
-curl -fsSL "https://github.com/arexgill/vlp-cli/releases/download/v${VLP_VERSION}/install.sh" | VLP_VERSION="$VLP_VERSION" sh
+MONKEYPAW_VERSION=0.1.0
+curl -fsSL "https://github.com/arexgill/monkeypaw/releases/download/v${MONKEYPAW_VERSION}/install.sh" | MONKEYPAW_VERSION="$MONKEYPAW_VERSION" sh
 ```
 
 Installer properties:
 - macOS and Linux
 - no automatic `sudo`
 - verifies SHA-256 before install
-- defaults to `~/.local/bin/vlp`
-- supports `VLP_VERSION` and `VLP_INSTALL_DIR`
+- defaults to `~/.local/bin/monkeypaw`
+- supports `MONKEYPAW_VERSION` and `MONKEYPAW_INSTALL_DIR`
 - uses `node`, `node20`, or `nodejs` when the resolved runtime is Node 20+
 
 Uninstall:
 
 ```bash
-sh "${XDG_DATA_HOME:-$HOME/.local/share}/vlp-cli/uninstall.sh"
+sh "${XDG_DATA_HOME:-$HOME/.local/share}/monkeypaw/uninstall.sh"
 ```
 
 ## Terminal-first workflow
 
 ```bash
-vlp --version
-vlp init
-vlp contract new sample
+monkeypaw --version
+monkeypaw init
+monkeypaw contract new sample
 # fill in the contract sections, then:
-vlp contract confirm sample
-vlp review --json > review.json || test $? -eq 3
+monkeypaw contract confirm sample
+monkeypaw review --json > review.json || test $? -eq 3
 SESSION_ID=$(node -p "JSON.parse(require('fs').readFileSync('review.json','utf8')).sessionId")
-vlp resolve --session "$SESSION_ID" --input decisions.json --json
+monkeypaw resolve --session "$SESSION_ID" --input decisions.json --json
 ```
 
-Plain `vlp review` is for interactive terminals. Agent and CI flows should use `--json` plus `vlp resolve`.
+Plain `monkeypaw review` is for interactive terminals. Agent and CI flows should use `--json` plus `monkeypaw resolve`.
 
 ## Optional web mode
 
 Browser review is explicit:
 
 ```bash
-vlp review --web
+monkeypaw review --web
 ```
 
 The local web server binds only to `127.0.0.1`. No browser opens unless `--web` is selected.
@@ -60,7 +60,7 @@ The local web server binds only to `127.0.0.1`. No browser opens unless `--web` 
 
 - reviewed source stays local
 - reports use repository-relative paths only
-- VLP never edits reviewed source
+- Monkeypaw never edits reviewed source
 - localhost web mode is local-only
 - Phase 1 keeps `agentReview: "off"`
 

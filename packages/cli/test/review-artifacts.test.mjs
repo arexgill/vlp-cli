@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { applyDecisions, createReviewSession } from '@arexgill/vlp-core';
+import { applyDecisions, createReviewSession } from '@monkeypaw/core';
 
 import { writeFinalArtifacts } from '../src/review-artifacts.mjs';
 import { loadSession, saveSession } from '../src/session-store.mjs';
@@ -14,7 +14,7 @@ const oldReport = '# Previous report\n';
 const oldAudit = '{"status":"previous"}\n';
 
 async function makeRoot() {
-  const root = await mkdtemp(path.join(tmpdir(), 'vlp-review-artifacts-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'monkeypaw-review-artifacts-'));
   await mkdir(path.join(root, '.git'));
   return root;
 }
@@ -26,7 +26,7 @@ function makeSessions() {
         id: 'task-8',
         slug: 'task-8',
         status: 'confirmed',
-        path: '.vlp/contracts/task-8.md',
+        path: '.monkeypaw/contracts/task-8.md',
         content: '# Task 8\n\n- Restore prior final artifacts on failure.',
       },
       sources: [
@@ -75,7 +75,7 @@ function makeSessions() {
 }
 
 async function seedExistingArtifacts(root, session) {
-  const reviewDir = path.join(root, '.vlp', 'reviews');
+  const reviewDir = path.join(root, '.monkeypaw', 'reviews');
   await mkdir(reviewDir, { recursive: true });
   await saveSession(root, session);
   await writeFile(path.join(reviewDir, `${session.sessionId}.md`), oldReport);
@@ -83,7 +83,7 @@ async function seedExistingArtifacts(root, session) {
 }
 
 async function assertArtifactsUnchanged(root, sessionId) {
-  const reviewDir = path.join(root, '.vlp', 'reviews');
+  const reviewDir = path.join(root, '.monkeypaw', 'reviews');
   const sessionDir = path.join(reviewDir, '.sessions');
 
   assert.equal(await readFile(path.join(reviewDir, `${sessionId}.md`), 'utf8'), oldReport);
@@ -171,7 +171,7 @@ test('writeFinalArtifacts rolls back the committed report and restores prior art
   const root = await makeRoot();
   const { session, resolved } = makeSessions();
   await seedExistingArtifacts(root, session);
-  const auditPath = path.join(root, '.vlp', 'reviews', `${session.sessionId}.json`);
+  const auditPath = path.join(root, '.monkeypaw', 'reviews', `${session.sessionId}.json`);
 
   await assert.rejects(
     () => writeFinalArtifacts(root, 'resolve', resolved, {
@@ -224,17 +224,17 @@ test('writeFinalArtifacts attempts cleanup for every stage before throwing aggre
 
   const rmPlan = createRmPlan([
     failOnce(
-      ({ target }) => target.includes(path.join('.vlp', 'reviews', `.${session.sessionId}.md.`)) && target.endsWith('.bak'),
+      ({ target }) => target.includes(path.join('.monkeypaw', 'reviews', `.${session.sessionId}.md.`)) && target.endsWith('.bak'),
       'Injected report cleanup failure',
     ),
     failOnce(
-      ({ target }) => target.includes(path.join('.vlp', 'reviews', `.${session.sessionId}.json.`))
-        && !target.includes(path.join('.vlp', 'reviews', '.sessions'))
+      ({ target }) => target.includes(path.join('.monkeypaw', 'reviews', `.${session.sessionId}.json.`))
+        && !target.includes(path.join('.monkeypaw', 'reviews', '.sessions'))
         && target.endsWith('.bak'),
       'Injected audit cleanup failure',
     ),
     failOnce(
-      ({ target }) => target.includes(path.join('.vlp', 'reviews', '.sessions', `.${session.sessionId}.json.`)) && target.endsWith('.bak'),
+      ({ target }) => target.includes(path.join('.monkeypaw', 'reviews', '.sessions', `.${session.sessionId}.json.`)) && target.endsWith('.bak'),
       'Injected session cleanup failure',
     ),
   ]);
@@ -248,9 +248,9 @@ test('writeFinalArtifacts attempts cleanup for every stage before throwing aggre
     'Injected audit cleanup failure',
     'Injected session cleanup failure',
   ]);
-  assert.equal(rmPlan.calls.some(({ target }) => target.includes(path.join('.vlp', 'reviews', `.${session.sessionId}.md.`))), true);
-  assert.equal(rmPlan.calls.some(({ target }) => target.includes(path.join('.vlp', 'reviews', `.${session.sessionId}.json.`)) && !target.includes(path.join('.vlp', 'reviews', '.sessions'))), true);
-  assert.equal(rmPlan.calls.some(({ target }) => target.includes(path.join('.vlp', 'reviews', '.sessions', `.${session.sessionId}.json.`))), true);
+  assert.equal(rmPlan.calls.some(({ target }) => target.includes(path.join('.monkeypaw', 'reviews', `.${session.sessionId}.md.`))), true);
+  assert.equal(rmPlan.calls.some(({ target }) => target.includes(path.join('.monkeypaw', 'reviews', `.${session.sessionId}.json.`)) && !target.includes(path.join('.monkeypaw', 'reviews', '.sessions'))), true);
+  assert.equal(rmPlan.calls.some(({ target }) => target.includes(path.join('.monkeypaw', 'reviews', '.sessions', `.${session.sessionId}.json.`))), true);
 
   await rm(root, { recursive: true, force: true });
 });
@@ -272,16 +272,16 @@ test('writeFinalArtifacts commits the session stage after report and audit files
     .filter(({ from }) => from.endsWith('.tmp'))
     .map(({ to }) => (
       to.endsWith(path.join('.sessions', `${session.sessionId}.json`))
-        ? path.join('.vlp', 'reviews', '.sessions', `${session.sessionId}.json`)
+        ? path.join('.monkeypaw', 'reviews', '.sessions', `${session.sessionId}.json`)
         : path.relative(root, to)
     ));
 
   assert.deepEqual(commitTargets.slice(-3), [
-    path.join('.vlp', 'reviews', `${session.sessionId}.md`),
-    path.join('.vlp', 'reviews', `${session.sessionId}.json`),
-    path.join('.vlp', 'reviews', '.sessions', `${session.sessionId}.json`),
+    path.join('.monkeypaw', 'reviews', `${session.sessionId}.md`),
+    path.join('.monkeypaw', 'reviews', `${session.sessionId}.json`),
+    path.join('.monkeypaw', 'reviews', '.sessions', `${session.sessionId}.json`),
   ]);
-  assert.equal(result.reportPath, `.vlp/reviews/${session.sessionId}.md`);
+  assert.equal(result.reportPath, `.monkeypaw/reviews/${session.sessionId}.md`);
 });
 
 test('writeFinalArtifacts preserves the primary failure when rollback or cleanup also fail', async () => {

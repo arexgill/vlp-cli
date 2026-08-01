@@ -5,12 +5,12 @@ import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { CORE_LIMITS, discoverSources } from '@arexgill/vlp-core';
+import { CORE_LIMITS, discoverSources } from '@monkeypaw/core';
 
 const fixtureRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'source-tree');
 
 async function materializeFixtureTree() {
-  const root = await mkdtemp(path.join(tmpdir(), 'vlp-fixture-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'monkeypaw-fixture-'));
   const sourceRoot = path.join(root, 'src');
 
   const files = [
@@ -70,12 +70,12 @@ test('rejects unsupported and empty code inputs', async () => {
     /Supported extensions/,
   );
 
-  const empty = await mkdtemp(path.join(tmpdir(), 'vlp-empty-'));
+  const empty = await mkdtemp(path.join(tmpdir(), 'monkeypaw-empty-'));
   await assert.rejects(discoverSources({ root: empty }), /No supported source files/);
 });
 
 test('enforces central file count and file size limits', async () => {
-  const limitRoot = await mkdtemp(path.join(tmpdir(), 'vlp-limit-'));
+  const limitRoot = await mkdtemp(path.join(tmpdir(), 'monkeypaw-limit-'));
 
   for (let index = 0; index < CORE_LIMITS.maxSourceFiles + 1; index += 1) {
     await writeFile(path.join(limitRoot, `f${index}.ts`), 'export const value = 1;\n');
@@ -83,7 +83,7 @@ test('enforces central file count and file size limits', async () => {
 
   await assert.rejects(discoverSources({ root: limitRoot }), /Source limit exceeded/);
 
-  const sizeRoot = await mkdtemp(path.join(tmpdir(), 'vlp-size-'));
+  const sizeRoot = await mkdtemp(path.join(tmpdir(), 'monkeypaw-size-'));
   await writeFile(path.join(sizeRoot, 'big.js'), 'x'.repeat(CORE_LIMITS.maxSourceFileBytes + 1));
 
   await assert.rejects(discoverSources({ root: sizeRoot }), /Source file exceeds 1 MiB/);
@@ -104,7 +104,7 @@ test('applies include/exclude globs to explicit paths and full discovery using r
 });
 
 test('skips raced deletions and permits in-root symlinks without importing fixture modules', async () => {
-  delete globalThis.__vlpCoreFixtureImported;
+  delete globalThis.__monkeypawCoreFixtureImported;
 
   const sourceRoot = await materializeFixtureTree();
   const deletedPath = path.join(sourceRoot, 'deleted.js');
@@ -117,14 +117,14 @@ test('skips raced deletions and permits in-root symlinks without importing fixtu
     paths: [deletedPath, path.join(sourceRoot, 'linked-poison.js')],
   });
 
-  assert.equal(globalThis.__vlpCoreFixtureImported, undefined);
+  assert.equal(globalThis.__monkeypawCoreFixtureImported, undefined);
   assert.deepEqual(sources.map((source) => source.path), ['linked-poison.js']);
-  assert.equal(sources[0].content.includes('globalThis.__vlpCoreFixtureImported = true;'), true);
+  assert.equal(sources[0].content.includes('globalThis.__monkeypawCoreFixtureImported = true;'), true);
 });
 
 test('rejects explicit symlink escapes before reading external source content', async () => {
   const sourceRoot = await materializeFixtureTree();
-  const outsideRoot = await mkdtemp(path.join(tmpdir(), 'vlp-outside-'));
+  const outsideRoot = await mkdtemp(path.join(tmpdir(), 'monkeypaw-outside-'));
   const externalTarget = path.join(outsideRoot, 'escape.js');
   await writeFile(externalTarget, 'globalThis.__outside = true;\n');
   await symlink(externalTarget, path.join(sourceRoot, 'escape.js'));
@@ -139,7 +139,7 @@ test('rejects explicit symlink escapes before reading external source content', 
 });
 
 test('reads source text without importing or evaluating fixture modules', async () => {
-  delete globalThis.__vlpCoreFixtureImported;
+  delete globalThis.__monkeypawCoreFixtureImported;
 
   const sourceRoot = await materializeFixtureTree();
   const sources = await discoverSources({
@@ -147,6 +147,6 @@ test('reads source text without importing or evaluating fixture modules', async 
     paths: [path.join(sourceRoot, 'poison.js')],
   });
 
-  assert.equal(globalThis.__vlpCoreFixtureImported, undefined);
-  assert.equal(sources[0].content.includes('globalThis.__vlpCoreFixtureImported = true;'), true);
+  assert.equal(globalThis.__monkeypawCoreFixtureImported, undefined);
+  assert.equal(sources[0].content.includes('globalThis.__monkeypawCoreFixtureImported = true;'), true);
 });

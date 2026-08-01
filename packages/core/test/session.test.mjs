@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { CORE_LIMITS, DecisionEnvelopeValidationError, applyDecisions, createReviewSession } from '@arexgill/vlp-core';
+import { CORE_LIMITS, DecisionEnvelopeValidationError, applyDecisions, createReviewSession } from '@monkeypaw/core';
 
 const uuid = '123e4567-e89b-12d3-a456-426614174000';
 
@@ -90,7 +90,7 @@ test('applyDecisions rejects malformed submitted session ids before validating q
   }
 
   assert(error instanceof DecisionEnvelopeValidationError);
-  assert.equal(error.code, 'ERR_VLP_DECISION_SESSION');
+  assert.equal(error.code, 'ERR_MONKEYPAW_DECISION_SESSION');
   assert.match(error.message, /invalid/i);
 });
 
@@ -108,7 +108,7 @@ test('applyDecisions rejects mismatched submitted session ids before validating 
   }
 
   assert(error instanceof DecisionEnvelopeValidationError);
-  assert.equal(error.code, 'ERR_VLP_DECISION_SESSION_MISMATCH');
+  assert.equal(error.code, 'ERR_MONKEYPAW_DECISION_SESSION_MISMATCH');
   assert.match(error.message, /does not match loaded session/);
 });
 

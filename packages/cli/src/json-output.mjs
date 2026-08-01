@@ -21,7 +21,7 @@ function sanitize(value) {
 }
 
 export function serializeJsonError(error) {
-  const code = typeof error?.code === 'string' && error.code ? error.code : 'ERR_VLP';
+  const code = typeof error?.code === 'string' && error.code ? error.code : 'ERR_MONKEYPAW';
   const message = typeof error?.message === 'string' && error.message ? error.message : String(error);
   return sanitize({ code, message });
 }

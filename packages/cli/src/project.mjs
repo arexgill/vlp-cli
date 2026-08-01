@@ -1,15 +1,15 @@
 import { mkdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { DEFAULT_CONFIG, CONFIG_PATH, formatConfig, loadConfig } from '@arexgill/vlp-core';
+import { DEFAULT_CONFIG, CONFIG_PATH, formatConfig, loadConfig } from '@monkeypaw/core';
 
-const VLP_DIR = '.vlp';
-const VLP_CONTRACTS_DIR = path.posix.join(VLP_DIR, 'contracts');
-const VLP_REVIEWS_DIR = path.posix.join(VLP_DIR, 'reviews');
-const VLP_GITIGNORE_PATH = path.posix.join(VLP_DIR, '.gitignore');
+const MONKEYPAW_DIR = '.monkeypaw';
+const MONKEYPAW_CONTRACTS_DIR = path.posix.join(MONKEYPAW_DIR, 'contracts');
+const MONKEYPAW_REVIEWS_DIR = path.posix.join(MONKEYPAW_DIR, 'reviews');
+const MONKEYPAW_GITIGNORE_PATH = path.posix.join(MONKEYPAW_DIR, '.gitignore');
 const HOST_GUIDANCE_FILES = ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md', 'COPILOT.md', 'CURSOR.md', 'WINDSURF.md'];
 
-const VLP_GITIGNORE_CONTENT = ['reviews/.sessions/', 'reviews/.cache/', 'reviews/*.tmp', ''].join('\n');
+const MONKEYPAW_GITIGNORE_CONTENT = ['reviews/.sessions/', 'reviews/.cache/', 'reviews/*.tmp', ''].join('\n');
 
 async function entryExists(filePath) {
   try {
@@ -74,9 +74,9 @@ export async function initializeProject(root) {
   const createdDirectories = [];
   const createdFiles = [];
 
-  await ensureDirectory(path.join(projectRoot, VLP_DIR), createdDirectories, projectRoot);
-  await ensureDirectory(path.join(projectRoot, VLP_CONTRACTS_DIR), createdDirectories, projectRoot);
-  await ensureDirectory(path.join(projectRoot, VLP_REVIEWS_DIR), createdDirectories, projectRoot);
+  await ensureDirectory(path.join(projectRoot, MONKEYPAW_DIR), createdDirectories, projectRoot);
+  await ensureDirectory(path.join(projectRoot, MONKEYPAW_CONTRACTS_DIR), createdDirectories, projectRoot);
+  await ensureDirectory(path.join(projectRoot, MONKEYPAW_REVIEWS_DIR), createdDirectories, projectRoot);
 
   const configPath = path.join(projectRoot, CONFIG_PATH);
   if (await entryExists(configPath)) {
@@ -86,9 +86,9 @@ export async function initializeProject(root) {
     createdFiles.push(path.relative(projectRoot, configPath).split(path.sep).join('/'));
   }
 
-  const gitignorePath = path.join(projectRoot, VLP_GITIGNORE_PATH);
+  const gitignorePath = path.join(projectRoot, MONKEYPAW_GITIGNORE_PATH);
   if (!(await entryExists(gitignorePath))) {
-    await writeFile(gitignorePath, VLP_GITIGNORE_CONTENT);
+    await writeFile(gitignorePath, MONKEYPAW_GITIGNORE_CONTENT);
     createdFiles.push(path.relative(projectRoot, gitignorePath).split(path.sep).join('/'));
   }
 

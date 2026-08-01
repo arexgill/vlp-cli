@@ -1,7 +1,7 @@
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-import { applyDecisions, buildReport } from '@arexgill/vlp-core';
+import { applyDecisions, buildReport } from '@monkeypaw/core';
 
 import { attachSecondaryErrors, collapseErrors } from './error-utils.mjs';
 import { createJsonEnvelope, reviewContractPayload, reviewQuestionPayloads } from './json-output.mjs';
@@ -14,7 +14,7 @@ export function reviewExitCode(session) {
 }
 
 async function ensureReviewDirectory(root) {
-  const directory = path.join(root, '.vlp', 'reviews');
+  const directory = path.join(root, '.monkeypaw', 'reviews');
   await mkdir(directory, { recursive: true });
   return directory;
 }
@@ -113,8 +113,8 @@ export async function writeFinalArtifacts(root, command, resolvedSession, option
     stageSessionSaveFn = stageSessionSave,
   } = options;
   const reviewDirectory = await ensureReviewDirectory(root);
-  const reportPath = `.vlp/reviews/${resolvedSession.sessionId}.md`;
-  const auditPath = `.vlp/reviews/${resolvedSession.sessionId}.json`;
+  const reportPath = `.monkeypaw/reviews/${resolvedSession.sessionId}.md`;
+  const auditPath = `.monkeypaw/reviews/${resolvedSession.sessionId}.json`;
   const markdown = buildReport({ contract: resolvedSession.contract, session: resolvedSession, decisions: resolvedSession.decisions });
   const exitCode = reviewExitCode(resolvedSession);
   const status = exitCode === 2 ? 'corrections-required' : 'completed';

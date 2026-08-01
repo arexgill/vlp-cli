@@ -1,10 +1,10 @@
 import { lstat, readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 
-import { normalizeReviewSession, normalizeSessionId, validateSubmittedDecisions } from '@arexgill/vlp-core';
+import { normalizeReviewSession, normalizeSessionId, validateSubmittedDecisions } from '@monkeypaw/core';
 
 function reviewDirectory(root) {
-  return path.join(root, '.vlp', 'reviews');
+  return path.join(root, '.monkeypaw', 'reviews');
 }
 
 function reviewSessionDirectory(root) {
@@ -25,29 +25,29 @@ function clean(value) {
 
 export function nextStatusCommand(contracts = [], latestReview = null) {
   if (latestReview?.status === 'unresolved' && latestReview?.sessionId) {
-    return `vlp resolve --session ${latestReview.sessionId} --input <file> --json`;
+    return `monkeypaw resolve --session ${latestReview.sessionId} --input <file> --json`;
   }
 
   const confirmed = (contracts || []).filter((record) => record?.status === 'confirmed');
   const drafts = (contracts || []).filter((record) => record?.status === 'draft');
 
   if ((contracts || []).length === 0) {
-    return 'vlp contract new';
+    return 'monkeypaw contract new';
   }
 
   if (confirmed.length === 0) {
     if (drafts.length === 1) {
-      return `vlp contract confirm ${drafts[0].slug}`;
+      return `monkeypaw contract confirm ${drafts[0].slug}`;
     }
 
-    return 'vlp contract new';
+    return 'monkeypaw contract new';
   }
 
   if (confirmed.length === 1) {
-    return 'vlp review';
+    return 'monkeypaw review';
   }
 
-  return 'vlp review --contract <slug>';
+  return 'monkeypaw review --contract <slug>';
 }
 
 async function reviewCandidates(directory, kind) {
