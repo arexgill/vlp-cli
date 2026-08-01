@@ -30,9 +30,9 @@ test('tracked product tree contains only the Monkeypaw identity', async () => {
 
   for (const file of files) {
     const content = await readFile(path.join(root, file));
-    const text = content.toString('utf8');
+    const text = content.toString('utf8').toLowerCase();
     for (const token of forbidden) {
-      if (text.includes(token)) findings.push(`${file}: ${JSON.stringify(token)}`);
+      if (text.includes(token.toLowerCase())) findings.push(`${file}: ${JSON.stringify(token)}`);
     }
   }
 

@@ -277,7 +277,7 @@ async function makePythonFixture() {
   return root;
 }
 
-async function runInstalledVlp(binDir, args, { cwd, env, input } = {}) {
+async function runInstalledMonkeypaw(binDir, args, { cwd, env, input } = {}) {
   return run(path.join(binDir, 'monkeypaw'), args, { cwd, env, input });
 }
 
@@ -478,7 +478,7 @@ test('installer atomically replaces a preexisting bin symlink without mv -h even
     const binTarget = await realpath(path.join(installHome.binDir, 'monkeypaw'));
     assert.match(binTarget, /\/0\.1\.0(?:\.generation\.[^/]+)?\/bin\/monkeypaw$/);
 
-    const versionResult = await runInstalledVlp(installHome.binDir, ['--version'], {
+    const versionResult = await runInstalledMonkeypaw(installHome.binDir, ['--version'], {
       env: { PATH: `${fakeBin}${path.delimiter}${process.env.PATH}` },
     });
     assert.equal(versionResult.code, 0, versionResult.stderr);
@@ -515,12 +515,12 @@ test('installer resolves the latest release, installs into a temporary HOME, smo
     assert.equal(install.code, 0, install.stderr);
     assert.match(install.stdout, /Installed monkeypaw/);
 
-    const versionResult = await runInstalledVlp(installHome.binDir, ['--version'], { env: { PATH: `${fakeBin}${path.delimiter}${process.env.PATH}` } });
+    const versionResult = await runInstalledMonkeypaw(installHome.binDir, ['--version'], { env: { PATH: `${fakeBin}${path.delimiter}${process.env.PATH}` } });
     assert.equal(versionResult.code, 0, versionResult.stderr);
     assert.equal(versionResult.stdout.trim(), version);
 
     const jsRoot = await makeJavaScriptFixture();
-    const jsReview = await runInstalledVlp(installHome.binDir, ['review', '--json'], {
+    const jsReview = await runInstalledMonkeypaw(installHome.binDir, ['review', '--json'], {
       cwd: jsRoot,
       env: { PATH: `${fakeBin}${path.delimiter}${process.env.PATH}` },
     });
@@ -530,14 +530,14 @@ test('installer resolves the latest release, installs into a temporary HOME, smo
       sessionId: jsEnvelope.sessionId,
       decisions: jsEnvelope.questions.map((question) => ({ questionId: question.id, decision: 'accept', answer: '' })),
     }, null, 2)}\n`);
-    const jsResolve = await runInstalledVlp(installHome.binDir, ['resolve', '--session', jsEnvelope.sessionId, '--input', 'decisions.json', '--json'], {
+    const jsResolve = await runInstalledMonkeypaw(installHome.binDir, ['resolve', '--session', jsEnvelope.sessionId, '--input', 'decisions.json', '--json'], {
       cwd: jsRoot,
       env: { PATH: `${fakeBin}${path.delimiter}${process.env.PATH}` },
     });
     assert.equal(jsResolve.code, 0, jsResolve.stdout + jsResolve.stderr);
 
     const pyRoot = await makePythonFixture();
-    const pyReview = await runInstalledVlp(installHome.binDir, ['review', '--json'], {
+    const pyReview = await runInstalledMonkeypaw(installHome.binDir, ['review', '--json'], {
       cwd: pyRoot,
       env: { PATH: `${fakeBin}${path.delimiter}${process.env.PATH}` },
     });
@@ -594,7 +594,7 @@ test('installer keeps the active generation usable until the atomic switch and l
     assert.equal((await readFile(path.join(orphanDir, 'marker.txt'), 'utf8')).trim(), 'orphan');
     await assert.rejects(() => realpath(firstTarget));
 
-    const versionResult = await runInstalledVlp(installHome.binDir, ['--version'], {
+    const versionResult = await runInstalledMonkeypaw(installHome.binDir, ['--version'], {
       env: { PATH: `${fakeBin}${path.delimiter}${process.env.PATH}` },
     });
     assert.equal(versionResult.code, 0, versionResult.stderr);
@@ -642,7 +642,7 @@ test('installer rolls back to the previous generation when the atomic smoke test
     const currentTarget = await realpath(path.join(installHome.binDir, 'monkeypaw'));
     assert.equal(currentTarget, firstTarget);
 
-    const versionResult = await runInstalledVlp(installHome.binDir, ['--version']);
+    const versionResult = await runInstalledMonkeypaw(installHome.binDir, ['--version']);
     assert.equal(versionResult.code, 0, versionResult.stderr);
     assert.equal(versionResult.stdout.trim(), version);
 
