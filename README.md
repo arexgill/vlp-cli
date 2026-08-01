@@ -1,6 +1,6 @@
 # Monkeypaw CLI
 
-Monkeypaw CLI is a terminal-first review tool for contract-driven validation of agent-built changes in local Git repositories.
+AI agents are powerful wish-granters—but as every good cautionary tale reminds us, getting exactly what you asked for isn’t always the same as getting what you had in mind. Monkeypaw compares your original intent with what the agent actually built, highlights the differences that matter, and lets you make the final call.
 
 ## Install
 

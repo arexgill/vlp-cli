@@ -884,7 +884,9 @@ test('installed/public web review assets still bind only to 127.0.0.1', async ()
 test('release docs cover the phase-1 installer, privacy, and limitations', async () => {
   const readme = await readFile(path.join(repoRoot, 'README.md'), 'utf8');
   const installer = await readFile(path.join(repoRoot, 'install', 'install.sh'), 'utf8');
+  const approvedIntroduction = 'AI agents are powerful wish-granters—but as every good cautionary tale reminds us, getting exactly what you asked for isn’t always the same as getting what you had in mind. Monkeypaw compares your original intent with what the agent actually built, highlights the differences that matter, and lets you make the final call.';
 
+  assert.equal(readme.startsWith(`# Monkeypaw CLI\n\n${approvedIntroduction}\n\n## Install\n`), true);
   assert.match(readme, new RegExp(`MONKEYPAW_VERSION=${version}`));
   assert.match(readme, new RegExp(`https://github\\.com/arexgill/monkeypaw/releases/download/v\\$\\{MONKEYPAW_VERSION\\}/install\\.sh`));
   assert.doesNotMatch(readme, /raw\.githubusercontent\.com\/arexgill\/monkeypaw\/main\/install\/install\.sh/);
